@@ -1,0 +1,83 @@
+name: Nix Build
+
+on:
+  push:
+    branches:
+      - main
+      - nix-troubleshoot
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - dabao-helloworld
+          - bao1x-boot0
+          - bao1x-alt-boot1
+          - bao1x-boot1
+
+    # needed for flakehub cache
+    permissions:
+      id-token: "write"
+      contents: "read"
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@v3
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/flakehub-cache-action@v3
+        with:
+          use-gha-cache: true
+
+      - name: Build ${{ matrix.package }}
+        run: nix build .#${{ matrix.package }} --print-build-logs
+
+      - name: Is Build Deterministic?
+        id: determistic-build-check
+        run: nix build --rebuild --keep-failed .#${{ matrix.package }} --print-build-logs
+
+      - name: Debug non-reproducibility
+        if: failure() && steps.determistic-build-check.outcome == 'failure'
+        run: |
+          nix run nixpkgs#diffoscope -- \
+            /nix/store/*-${{ matrix.package }}* \
+            /nix/store/*-${{ matrix.package }}*.check || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package }}
+          path: result/
+          if-no-files-found: error
+
+  # Flake health checks
+  check:
+    name: Flake check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@v3
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/flakehub-cache-action@v3
+        with:
+          use-gha-cache: true
+
+      - name: Run flake check
+        run: nix flake check
+
+      - name: Show flake outputs
+        run: nix flake show
