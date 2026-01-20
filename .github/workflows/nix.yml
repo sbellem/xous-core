@@ -10,32 +10,9 @@ on:
       - main
 
 jobs:
-  warmup-cache:
-    name: Build and cache shared dependencies
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: "write"
-      contents: "read"
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-
-      - name: Install Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
-
-      - name: Setup cache
-        uses: DeterminateSystems/magic-nix-cache-action@main
-        with:
-          use-flakehub: false
-          use-gha-cache: false
-
-      - name: Build shared dependencies
-        run: nix build .#ci-deps --print-build-logs
-
   build:
     name: Build ${{ matrix.package }}
     runs-on: ubuntu-latest
-    needs: warmup-cache
     strategy:
       fail-fast: false
       matrix:
@@ -53,12 +30,6 @@ jobs:
 
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@v3
-
-      - name: Setup cache
-        uses: DeterminateSystems/magic-nix-cache-action@main
-        with:
-          use-flakehub: false
-          use-gha-cache: false
 
       - name: Build ${{ matrix.package }}
         run: nix build .#${{ matrix.package }} --print-build-logs --out-link result-first
