@@ -10,23 +10,23 @@ on:
       - main
 
 jobs:
-  build-deps:
-    name: Build and cache shared dependencies
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
+  #Ebuild-deps:
+  #E  name: Build and cache shared dependencies
+  #E  runs-on: ubuntu-latest
+  #E  steps:
+  #E    - name: Checkout sources
+  #E      uses: actions/checkout@v4
 
-      - name: Install Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
+  #E    - name: Install Nix
+  #E      uses: DeterminateSystems/determinate-nix-action@v3
 
-      - uses: cachix/cachix-action@v15
-        with:
-          name: xous-core
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+  #E    - uses: cachix/cachix-action@v15
+  #E      with:
+  #E        name: xous-core
+  #E        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      - name: Build shared dependencies
-        run: nix build .#ci-deps --print-build-logs
+  #E    - name: Build shared dependencies
+  #E      run: nix build .#ci-deps --print-build-logs
 
   build:
     name: Build ${{ matrix.package }}
@@ -41,11 +41,6 @@ jobs:
           - bao1x-alt-boot1
           - bao1x-boot1
 
-    # needed for flakehub cache
-    permissions:
-      id-token: "write"
-      contents: "read"
-
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -53,15 +48,10 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@v3
 
-      #- name: Setup Nix cache
-      #  uses: DeterminateSystems/magic-nix-cache-action@main
+      #- uses: cachix/cachix-action@v15
       #  with:
-      #    use-gha-cache: true
-      #    use-flakehub: false
-      - uses: cachix/cachix-action@v15
-        with:
-          name: xous-core
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      #    name: xous-core
+      #    authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Build ${{ matrix.package }}
         run: nix build .#${{ matrix.package }} --print-build-logs --out-link result-first
@@ -95,12 +85,6 @@ jobs:
 
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@v3
-
-      #- name: Setup Nix cache
-      #  uses: DeterminateSystems/magic-nix-cache-action@main
-      #  with:
-      #    use-gha-cache: true
-      #    use-flakehub: false
 
       - name: Run flake check
         run: nix flake check
