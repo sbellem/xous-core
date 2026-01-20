@@ -144,10 +144,25 @@
             pname = "bao1x-boot1";
             xtaskCmd = "bao1x-boot1";
           };
+
+          bao1x-boot1 = mkXousBuild {
+            pname = "bao1x-boot1";
+            xtaskCmd = "bao1x-boot1";
+          };
+
+          bao1x-baremetal-dabao = mkXousBuild {
+            pname = "bao1x-baremetal-dabao";
+            xtaskCmd = "bao1x-baremetal-dabao";
+          };
+
+          baosec = mkXousBuild {
+            pname = "baosec";
+            xtaskCmd = "baosec";
+          };
         in
         {
           # Main packages
-          inherit dabao-helloworld bao1x-boot0 bao1x-alt-boot1 bao1x-boot1;
+          inherit dabao-helloworld bao1x-boot0 bao1x-alt-boot1 bao1x-boot1 bao1x-baremetal-dabao baosec;
 
           # bootloader stage 1
           boot1 = pkgs.runCommand "boot1" {} ''
