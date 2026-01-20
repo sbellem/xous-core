@@ -84,6 +84,9 @@
             mkdir -p .cargo
             # Append vendoring config to existing config
             cat ${vendoredDeps}/config.toml >> .cargo/config.toml
+            # Also configure locales directory to use vendored deps
+            mkdir -p locales/.cargo
+            cat ${vendoredDeps}/config.toml >> locales/.cargo/config.toml
           '';
 
           # Common environment for reproducible Rust builds
