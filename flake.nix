@@ -161,6 +161,15 @@
             cp -r ${bao1x-boot0}/* ${bao1x-boot1}/* ${bao1x-alt-boot1}/* $out
           '';
 
+          # CI dependency caching - bundles shared dependencies
+          ci-deps = pkgs.symlinkJoin {
+            name = "xous-ci-deps";
+            paths = [
+              rustToolchain
+              vendoredDeps
+            ];
+          };
+
           # Aliases
           dabao = dabao-helloworld;
 
