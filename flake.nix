@@ -153,6 +153,7 @@
           baosec = mkXousBuild {
             pname = "baosec";
             xtaskCmd = "baosec";
+            targetDir = "riscv32imac-unknown-xous-elf";
           };
         in
         {
@@ -182,6 +183,7 @@
 
           # Aliases
           dabao = dabao-helloworld;
+          baremetal = bao1x-baremetal-dabao;
 
           default = dabao-helloworld;
         }
