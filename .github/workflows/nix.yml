@@ -27,7 +27,7 @@ jobs:
         uses: DeterminateSystems/magic-nix-cache-action@main
         with:
           use-flakehub: false
-          use-gha-cache: true
+          use-gha-cache: false
 
       - name: Build shared dependencies
         run: nix build .#ci-deps --print-build-logs
@@ -58,7 +58,7 @@ jobs:
         uses: DeterminateSystems/magic-nix-cache-action@main
         with:
           use-flakehub: false
-          use-gha-cache: true
+          use-gha-cache: false
 
       - name: Build ${{ matrix.package }}
         run: nix build .#${{ matrix.package }} --print-build-logs --out-link result-first
