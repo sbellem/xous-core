@@ -26,6 +26,11 @@
         then builtins.substring 0 9 self.rev
         else "000000000";
 
+      # Full git revision for swap_writer (needs full 40-char hash)
+      gitRevFull = if self ? rev
+        then self.rev
+        else "0000000000000000000000000000000000000000";
+
       sinceTagRevCount = if self ? revCount
         then toString (self.revCount - gitTagRevCount)
         else "0";
@@ -66,6 +71,20 @@
             inherit src;
           };
 
+          # Vendor locales dependencies separately (it has its own Cargo.lock)
+          localesSrc = pkgs.lib.cleanSourceWith {
+            src = self;
+            filter = path: type:
+              (pkgs.lib.hasInfix "/locales/" path) ||
+              (pkgs.lib.hasSuffix "/locales" path) ||
+              (baseNameOf path == "Cargo.toml" && dirOf path == toString self + "/locales") ||
+              (baseNameOf path == "Cargo.lock" && dirOf path == toString self + "/locales");
+          };
+
+          vendoredLocalesDeps = craneLib.vendorCargoDeps {
+            src = self + "/locales";
+          };
+
           # Common postPatch to replace SemVer::from_git() with hardcoded version
           patchSemver = ''
             substituteInPlace tools/src/sign_image.rs \
@@ -79,14 +98,21 @@
                              'let gitver = std::env::var("XOUS_VERSION").map(|s| s.into_bytes()).unwrap_or(output.stdout);'
           '';
 
+          # Patch swap_writer.rs to use GIT_REV env var instead of running git
+          patchSwapWriter = ''
+            substituteInPlace tools/src/swap_writer.rs \
+              --replace-fail 'Command::new("git").args(&["rev-parse", "HEAD"]).output().expect("Failed to execute command")' \
+                             'std::env::var("GIT_REV").map(|s| std::process::Output { status: std::process::ExitStatus::default(), stdout: s.into_bytes(), stderr: vec![] }).unwrap_or_else(|_| Command::new("git").args(&["rev-parse", "HEAD"]).output().expect("Failed to execute command"))'
+          '';
+
           # Configure cargo to use vendored deps
           configureVendoring = ''
             mkdir -p .cargo
             # Append vendoring config to existing config
             cat ${vendoredDeps}/config.toml >> .cargo/config.toml
-            # Also configure locales directory to use vendored deps
+            # Configure locales directory to use its own vendored deps
             mkdir -p locales/.cargo
-            cat ${vendoredDeps}/config.toml >> locales/.cargo/config.toml
+            cat ${vendoredLocalesDeps}/config.toml >> locales/.cargo/config.toml
           '';
 
           # Common environment for reproducible Rust builds
@@ -95,6 +121,8 @@
             export CARGO_HOME=$PWD/.cargo
             mkdir -p $CARGO_HOME
             export XOUS_VERSION="${xousVersion}"
+            # Git revision for swap_writer.rs (uses last 16 hex chars of full hash)
+            export GIT_REV="${gitRevFull}"
             # Reproducibility flags
             export CARGO_INCREMENTAL=0
             export RUSTFLAGS="-C codegen-units=1 --remap-path-prefix=$PWD=/build"
@@ -110,7 +138,7 @@
               src = self;  # Use full source for xtask builds
               nativeBuildInputs = [ rustToolchain ];
 
-              postPatch = patchSemver + patchVersioning;
+              postPatch = patchSemver + patchVersioning + patchSwapWriter;
 
               configurePhase = configureVendoring;
 
