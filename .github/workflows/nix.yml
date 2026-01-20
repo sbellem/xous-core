@@ -36,6 +36,9 @@ jobs:
 
       - name: Setup Nix cache
         uses: DeterminateSystems/magic-nix-cache-action@main
+        with:
+          use-gha-cache: true
+          use-flakehub: false
 
       - name: Build ${{ matrix.package }}
         run: nix build .#${{ matrix.package }} --print-build-logs
@@ -71,6 +74,9 @@ jobs:
 
       - name: Setup Nix cache
         uses: DeterminateSystems/magic-nix-cache-action@main
+        with:
+          use-gha-cache: true
+          use-flakehub: false
 
       - name: Run flake check
         run: nix flake check
