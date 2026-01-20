@@ -3,9 +3,9 @@
 
   inputs = {
     nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.2511.905687";
-    rust-xous.url = "github:sbellem/rust-xous-flake?rev=1b4aa71c9844f2a1c0fb7f7dba0312d9a3728ee0";
+    rust-xous.url = "github:sbellem/rust-xous-flake?rev=7afb9744e6393493a9357d1a64ec108780880bd0";
     rust-overlay.url = "https://flakehub.com/f/oxalica/rust-overlay/0.1.2040";
-    crane.url = "github:ipetkov/crane";
+    crane.url = "github:ipetkov/crane/0bda7e7d005ccb5522a76d11ccfbf562b71953ca";
   };
 
   outputs =
