@@ -49,6 +49,8 @@ jobs:
           - bao1x-boot0
           - bao1x-alt-boot1
           - bao1x-boot1
+          - baosec
+          - bao1x-baremetal-dabao
 
     steps:
       - name: Checkout sources
