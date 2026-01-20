@@ -145,11 +145,6 @@
             xtaskCmd = "bao1x-boot1";
           };
 
-          bao1x-boot1 = mkXousBuild {
-            pname = "bao1x-boot1";
-            xtaskCmd = "bao1x-boot1";
-          };
-
           bao1x-baremetal-dabao = mkXousBuild {
             pname = "bao1x-baremetal-dabao";
             xtaskCmd = "bao1x-baremetal-dabao";
