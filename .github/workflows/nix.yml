@@ -13,9 +13,9 @@ jobs:
   warmup-cache:
     name: Build and cache shared dependencies
     runs-on: ubuntu-latest
-    permissions:
-      id-token: "write"
-      contents: "read"
+    #permissions:
+    #  id-token: "write"
+    #  contents: "read"
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -24,14 +24,14 @@ jobs:
         uses: DeterminateSystems/determinate-nix-action@v3
 
       - name: Setup cache
-        #uses: cachix/cachix-action@v15
-        #with:
-        #  name: xous-core
-        #  authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-        uses: DeterminateSystems/magic-nix-cache-action@main
+        uses: cachix/cachix-action@v15
         with:
-          use-flakehub: false
-          use-gha-cache: true
+          name: xous-core
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        #uses: DeterminateSystems/magic-nix-cache-action@main
+        #with:
+        #  use-flakehub: false
+        #  use-gha-cache: true
 
 
       - name: Build shared dependencies
@@ -60,14 +60,14 @@ jobs:
         uses: DeterminateSystems/determinate-nix-action@v3
 
       - name: Setup cache
-        #uses: cachix/cachix-action@v15
-        #with:
-        #  name: xous-core
-        #  authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-        uses: DeterminateSystems/magic-nix-cache-action@main
+        uses: cachix/cachix-action@v15
         with:
-          use-flakehub: false
-          use-gha-cache: true
+          name: xous-core
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        #uses: DeterminateSystems/magic-nix-cache-action@main
+        #with:
+        #  use-flakehub: false
+        #  use-gha-cache: true
 
       - name: Build ${{ matrix.package }}
         run: nix build .#${{ matrix.package }} --print-build-logs --out-link result-first
