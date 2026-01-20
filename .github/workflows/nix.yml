@@ -10,27 +10,28 @@ on:
       - main
 
 jobs:
-  #Ebuild-deps:
-  #E  name: Build and cache shared dependencies
-  #E  runs-on: ubuntu-latest
-  #E  steps:
-  #E    - name: Checkout sources
-  #E      uses: actions/checkout@v4
+  warmup-cache:
+    name: Build and cache shared dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
 
-  #E    - name: Install Nix
-  #E      uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@v3
 
-  #E    - uses: cachix/cachix-action@v15
-  #E      with:
-  #E        name: xous-core
-  #E        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: cachix/cachix-action@v15
+        with:
+          name: xous-core
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-  #E    - name: Build shared dependencies
-  #E      run: nix build .#ci-deps --print-build-logs
+      - name: Build shared dependencies
+        run: nix build .#ci-deps --print-build-logs
 
   build:
     name: Build ${{ matrix.package }}
     runs-on: ubuntu-latest
+    needs: warmup-cache
     strategy:
       fail-fast: false
       matrix:
@@ -47,10 +48,10 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@v3
 
-      #- uses: cachix/cachix-action@v15
-      #  with:
-      #    name: xous-core
-      #    authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: cachix/cachix-action@v15
+        with:
+          name: xous-core
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Build ${{ matrix.package }}
         run: nix build .#${{ matrix.package }} --print-build-logs --out-link result-first
@@ -74,8 +75,7 @@ jobs:
           path: result/
           if-no-files-found: error
 
-  # Flake health checks
-  check:
+  flake-check:
     name: Flake check
     runs-on: ubuntu-latest
     steps:
