@@ -74,7 +74,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.app }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.app }},ignore-error=true
+          cache-to: type=gha,mode=min,scope=${{ matrix.app }},ignore-error=true
           outputs: type=local,dest=./output
           provenance: false
           sbom: false
@@ -141,7 +141,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=bao1x-boot
-          cache-to: type=gha,mode=max,scope=bao1x-boot,ignore-error=true
+          cache-to: type=gha,mode=min,scope=bao1x-boot,ignore-error=true
           outputs: type=local,dest=./output
           provenance: false
           sbom: false
