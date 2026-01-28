@@ -1,0 +1,10 @@
+;; -*- mode: scheme; -*-
+
+(channel
+ (version 0)
+ (directory "guix")
+ (dependencies
+  (channel
+   (name rust-xous)
+   (url "https://github.com/sbellem/rust-xous-guix")
+   (branch "guix"))))
