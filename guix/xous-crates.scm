@@ -59,6 +59,7 @@
     (sha256 (base32 "0q720v21rcpq0pi1di0yjdbqzmbgk7xhayangwb6fhyn9bbql48l"))))
 
 ;; atsama5d27 0.1.0 + utralib 0.1.18 from Foundation-Devices (same repo)
+;; Snippet removes optional dependencies not needed for xous-core builds
 (define rust-atsama5d27-git
   (origin
     (method git-fetch)
@@ -66,7 +67,32 @@
           (url "https://github.com/Foundation-Devices/atsama5d27.git")
           (commit "9e83a502e68384754bb328a5717c56f34c8618f7")))
     (file-name "rust-atsama5d27-0.1.0-checkout")
-    (sha256 (base32 "0gjfcrn8dia0nqag035c431qaxw7qa13h8mb17kwgbfkabg2w6b9"))))
+    (sha256 (base32 "0gjfcrn8dia0nqag035c431qaxw7qa13h8mb17kwgbfkabg2w6b9"))
+    (snippet
+     #~(begin
+         (use-modules (guix build utils))
+         ;; Remove optional dependencies that would require extra vendored crates
+         (substitute* "Cargo.toml"
+           ;; Remove dependency entries: name = {...}
+           (("rtt-target *= *\\{[^}]*\\}\n?") "")
+           (("ft3269 *= *\\{[^}]*\\}\n?") "")
+           (("ovm7690-rs *= *\\{[^}]*\\}\n?") "")
+           (("bq24157 *= *\\{[^}]*\\}\n?") "")
+           (("bq27421 *= *\\{[^}]*\\}\n?") "")
+           (("ehci *= *\\{[^}]*\\}\n?") "")
+           (("mass-storage *= *\\{[^}]*\\}\n?") "")
+           (("drv2605 *= *\\{[^}]*\\}\n?") "")
+           (("is31fl32xx *= *\\{[^}]*\\}\n?") "")
+           (("embedded-sdmmc *= *\\{[^}]*\\}\n?") "")
+           (("hex *= *\\{[^}]*\\}\n?") "")
+           ;; Remove feature arrays: name = [...]
+           (("camera *= *\\[[^]]*\\]\n?") "")
+           (("charger *= *\\[[^]]*\\]\n?") "")
+           (("usb-host *= *\\[[^]]*\\]\n?") "")
+           (("rtt *= *\\[[^]]*\\]\n?") "")
+           (("fitment *= *\\[[^]]*\\]\n?") "")
+           (("mmc *= *\\[[^]]*\\]\n?") "")
+           (("sha *= *\\[[^]]*\\]\n?") ""))))))
 
 ;; com_rs 0.1.0 from betrusted-io
 (define rust-com-rs-git
@@ -119,6 +145,8 @@
     (sha256 (base32 "1yvzghjwvyp2l4kf6j5m3spwz2nsci64gj4nsx06mgcgpm616389"))))
 
 ;; rqrr 0.10.0 from betrusted-io
+;; rqrr 0.10.0 from betrusted-io
+;; Snippet removes image dependency not needed for xous-core
 (define rust-rqrr-git
   (origin
     (method git-fetch)
@@ -126,7 +154,16 @@
           (url "https://github.com/betrusted-io/rqrr.git")
           (commit "388fc6c0b7ee6cd7e5a2261a9d67a0c0692184f1")))
     (file-name "rust-rqrr-0.10.0-checkout")
-    (sha256 (base32 "0il0cr1wpkj32f1bih4xq2bbf2iwanmlavlq9f6ls0c80qn6vz1d"))))
+    (sha256 (base32 "0il0cr1wpkj32f1bih4xq2bbf2iwanmlavlq9f6ls0c80qn6vz1d"))
+    (snippet
+     #~(begin
+         (use-modules (guix build utils))
+         (substitute* "Cargo.toml"
+           ;; Remove default and img features
+           (("default *= *\\[\"img\"\\]\n?") "")
+           (("img *= *\\[\"image\"\\]\n?") "")
+           ;; Remove image dependency
+           (("image *= *\\{[^}]*\\}\n?") ""))))))
 
 ;; sha2 0.10.8 from betrusted-io (hashes fork)
 ;; Commit from Cargo.lock: ab2ab59c41f294eef1d90ac768a5d94a08c12d63
@@ -170,6 +207,8 @@
     (sha256 (base32 "1vj5s488n9gpxlkb99l3jvyj8b5z2qp4m9dh4kj258k7bkk3x7m3"))))
 
 ;; xous-usb-hid 0.4.3 from betrusted-io
+;; xous-usb-hid 0.4.3 from betrusted-io
+;; Snippet fixes defmt feature to not reference usb-device/defmt
 (define rust-xous-usb-hid-git
   (origin
     (method git-fetch)
@@ -177,7 +216,14 @@
           (url "https://github.com/betrusted-io/xous-usb-hid.git")
           (commit "793ec00243c525f2d17dc1d3a185abdeec57aaf6")))
     (file-name "rust-xous-usb-hid-0.4.3-checkout")
-    (sha256 (base32 "172bw2p6hj3478ns5c06nlwy1hqflrhz3ngnmriy7zxp4bpqsr5y"))))
+    (sha256 (base32 "172bw2p6hj3478ns5c06nlwy1hqflrhz3ngnmriy7zxp4bpqsr5y"))
+    (snippet
+     #~(begin
+         (use-modules (guix build utils))
+         (substitute* "Cargo.toml"
+           ;; Fix defmt feature: remove usb-device/defmt reference
+           (("defmt *= *\\[\"dep:defmt\", *\"usb-device/defmt\"\\]")
+            "defmt = [\"dep:defmt\"]"))))))
 
 ;;;
 ;;; Crates.io dependencies for locales (older versions from locales/Cargo.lock)

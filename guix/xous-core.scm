@@ -209,76 +209,8 @@
                                (display modified port)))))))
                    (find-files git-vendor-dir "^Cargo\\.toml$"))
 
-                  ;; Patch atsama5d27 to remove optional deps
-                  (let ((atsama5d27-toml (string-append git-vendor-dir "/git-atsama5d27/Cargo.toml")))
-                    (when (file-exists? atsama5d27-toml)
-                      (let ((content (call-with-input-file atsama5d27-toml get-string-all)))
-                        (call-with-output-file atsama5d27-toml
-                          (lambda (port)
-                            (let* ((modified content)
-                                   (modified (regexp-substitute/global
-                                              #f "rtt-target *= *\\{[^}]*\\}\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "ft3269 *= *\\{[^}]*\\}\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "ovm7690-rs *= *\\{[^}]*\\}\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "bq24157 *= *\\{[^}]*\\}\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "bq27421 *= *\\{[^}]*\\}\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "ehci *= *\\{[^}]*\\}\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "mass-storage *= *\\{[^}]*\\}\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "drv2605 *= *\\{[^}]*\\}\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "is31fl32xx *= *\\{[^}]*\\}\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "embedded-sdmmc *= *\\{[^}]*\\}\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "hex *= *\\{[^}]*\\}\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "camera *= *\\[[^]]*\\]\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "charger *= *\\[[^]]*\\]\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "usb-host *= *\\[[^]]*\\]\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "rtt *= *\\[[^]]*\\]\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "fitment *= *\\[[^]]*\\]\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "mmc *= *\\[[^]]*\\]\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "sha *= *\\[[^]]*\\]\n?" modified 'pre 'post)))
-                              (display modified port)))))))
-
-                  ;; Patch xous-usb-hid to remove usb-device/defmt feature
-                  (let ((xous-usb-hid-toml (string-append git-vendor-dir "/git-xous-usb-hid/Cargo.toml")))
-                    (when (file-exists? xous-usb-hid-toml)
-                      (let ((content (call-with-input-file xous-usb-hid-toml get-string-all)))
-                        (call-with-output-file xous-usb-hid-toml
-                          (lambda (port)
-                            (let ((modified (regexp-substitute/global
-                                             #f "defmt *= *\\[\"dep:defmt\", *\"usb-device/defmt\"\\]"
-                                             content 'pre "defmt = [\"dep:defmt\"]" 'post)))
-                              (display modified port)))))))
-
-                  ;; Patch rqrr to disable image dependency
-                  (let ((rqrr-toml (string-append git-vendor-dir "/git-rqrr/Cargo.toml")))
-                    (when (file-exists? rqrr-toml)
-                      (let ((content (call-with-input-file rqrr-toml get-string-all)))
-                        (call-with-output-file rqrr-toml
-                          (lambda (port)
-                            (let* ((modified content)
-                                   (modified (regexp-substitute/global
-                                              #f "default *= *\\[\"img\"\\]\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "img *= *\\[\"image\"\\]\n?" modified 'pre 'post))
-                                   (modified (regexp-substitute/global
-                                              #f "image *= *\\{[^}]*\\}\n?" modified 'pre 'post)))
-                              (display modified port)))))))
+                  ;; Note: Package-specific patches (atsama5d27, xous-usb-hid, rqrr)
+                  ;; are now handled by snippets in xous-crates.scm
 
                   ;; Remove [dev-dependencies] from git checkout Cargo.toml files
                   ;; that have dev-deps causing resolution issues (rand, rusb, etc.)
