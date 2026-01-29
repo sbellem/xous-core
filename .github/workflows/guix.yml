@@ -69,7 +69,7 @@ jobs:
 
       - name: Guix build ${{ matrix.task }}
         run: |
-          guix build ${{ matrix.task }} --root=guix-result-${{ matrix.task }}
+          guix build ${{ matrix.task }} --no-substitutes --root=guix-result-${{ matrix.task }}
 
       - name: Show build output
         run: |
