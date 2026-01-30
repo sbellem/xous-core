@@ -28,8 +28,8 @@
             rust-usb-device-git
             rust-usbd-serial-git
             rust-xous-usb-hid-git
-            ;; Crate inputs lists
-            bao1x-boot0-crate-inputs
+            ;; Crate inputs lists (all crates, used by all targets for now)
+            %bao-crate-inputs
             ;; Lookup function
             lookup-cargo-inputs))
 
@@ -2686,9 +2686,10 @@
 
 ;;;
 ;;; Crate input lists for packages
+;;; %bao-crate-inputs contains all crates needed by any target
 ;;;
 
-(define bao1x-boot0-crate-inputs
+(define %bao-crate-inputs
   (list
    rust-adler-1.0.2
    rust-aead-0.5.2
@@ -3304,8 +3305,16 @@
 ))
 
 ;;;
-;;; Cargo inputs lookup (legacy, for future expansion)
+;;; Cargo inputs lookup
+;;; Maps target names to their crate inputs lists
+;;; Currently all targets use %bao-crate-inputs; can be split per-target later
 ;;;
 
 (define-cargo-inputs lookup-cargo-inputs
-  (bao1x-boot0 => bao1x-boot0-crate-inputs))
+  (bao1x-boot0 => %bao-crate-inputs)
+  (bao1x-boot1 => %bao-crate-inputs)
+  (bao1x-alt-boot1 => %bao-crate-inputs)
+  (bao1x-baremetal-dabao => %bao-crate-inputs)
+  (dabao => %bao-crate-inputs)
+  (dabao-helloworld => %bao-crate-inputs)
+  (baosec => %bao-crate-inputs))
