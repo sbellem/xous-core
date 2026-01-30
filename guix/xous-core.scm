@@ -23,24 +23,13 @@
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages version-control)
   #:use-module (gnu packages commencement)
+  #:use-module (srfi srfi-1)
   #:use-module (rust-xous)
   #:use-module (xous-crates))
 
 ;;; Version configuration
 (define %xous-git-tag "0.9.16")
 (define %xous-git-tag-rev-count 7276)
-
-;;; xous-core source from git
-(define xous-core-source
-  (origin
-    (method git-fetch)
-    (uri (git-reference
-          (url "https://github.com/betrusted-io/xous-core")
-          ;; Use a specific commit for reproducibility
-          (commit "main")))  ; Replace with actual commit hash
-    (file-name "xous-core-source")
-    (sha256
-     (base32 "0000000000000000000000000000000000000000000000000000"))))  ; Replace with actual hash
 
 ;;; Local source from current repository (works for both local dev and CI)
 ;;; Uses dirname to get parent of guix/ directory (the repo root)
@@ -104,6 +93,21 @@
     ("git-xous-usb-hid" ,rust-xous-usb-hid-git
      "https://github.com/betrusted-io/xous-usb-hid.git"
      (("xous-usb-hid" . ".")))))
+
+;;; Derive git URL to local path mappings from %git-dependencies
+;;; Returns list of (crate-name git-url input-name subdir)
+(define (git-deps->mappings deps)
+  (append-map
+   (lambda (dep)
+     (let ((input-name (car dep))
+           (git-url (caddr dep))
+           (crate-mappings (cadddr dep)))
+       (map (lambda (mapping)
+              (list (car mapping) git-url input-name (cdr mapping)))
+            crate-mappings)))
+   deps))
+
+(define %git-mappings (git-deps->mappings %git-dependencies))
 
 ;;; Helper to create xous-core build packages with vendored dependencies
 (define* (make-xous-build name xtask-cmd
@@ -243,64 +247,48 @@
 
             ;; Phase 4: Patch ALL Cargo.toml files to convert git deps to path deps
             ;; This must happen BEFORE cargo runs, as cargo tries to fetch git sources
+            ;; Mappings derived from %git-dependencies: (crate-name git-url input-name subdir)
             (add-after 'setup-git-deps 'patch-cargo-toml-git-deps
               (lambda _
                 (use-modules (ice-9 textual-ports)
                              (ice-9 regex))
-                (let ((git-vendor-dir (string-append (getcwd) "/git-vendor")))
-                  ;; Define git URL to local path mappings
-                  (let ((git-mappings
-                         `(("armv7" "https://github.com/Foundation-Devices/armv7.git" "git-armv7" ".")
-                           ("atsama5d27" "https://github.com/Foundation-Devices/atsama5d27.git" "git-atsama5d27" ".")
-                           ("utralib" "https://github.com/Foundation-Devices/atsama5d27.git" "git-atsama5d27" "utralib")
-                           ("com_rs" "https://github.com/betrusted-io/com_rs" "git-com-rs" ".")
-                           ("curve25519-dalek" "https://github.com/betrusted-io/curve25519-dalek.git" "git-curve25519-dalek" "curve25519-dalek")
-                           ("curve25519-dalek-derive" "https://github.com/betrusted-io/curve25519-dalek.git" "git-curve25519-dalek" "curve25519-dalek-derive")
-                           ("engine-25519" "https://github.com/betrusted-io/xous-engine-25519.git" "git-engine-25519" ".")
-                           ("engine25519-as" "https://github.com/betrusted-io/engine25519-as.git" "git-engine25519-as" ".")
-                           ("ring" "https://github.com/betrusted-io/ring-xous" "git-ring-xous" ".")
-                           ("rqrr" "https://github.com/betrusted-io/rqrr.git" "git-rqrr" ".")
-                           ("sha2" "https://github.com/betrusted-io/hashes.git" "git-sha2-xous" "sha2")
-                           ("simple-fatfs" "https://github.com/betrusted-io/simple-fatfs.git" "git-simple-fatfs" ".")
-                           ("usb-device" "https://github.com/betrusted-io/usb-device.git" "git-usb-device" ".")
-                           ("usbd-serial" "https://github.com/betrusted-io/usbd-serial.git" "git-usbd-serial" ".")
-                           ("xous-usb-hid" "https://github.com/betrusted-io/xous-usb-hid.git" "git-xous-usb-hid" "."))))
-                    ;; Find and patch all Cargo.toml files
-                    (for-each
-                     (lambda (cargo-toml)
-                       (let ((content (call-with-input-file cargo-toml get-string-all)))
-                         ;; Only process files that contain git dependencies
-                         (when (string-contains content "git = \"https://github.com")
-                           (call-with-output-file cargo-toml
-                             (lambda (port)
-                               (let ((modified content))
-                                 ;; Replace git = "URL" with path = "LOCAL"
-                                 (for-each
-                                  (lambda (mapping)
-                                    (let* ((crate-name (car mapping))
-                                           (git-url (cadr mapping))
-                                           (local-dir (caddr mapping))
-                                           (subdir (cadddr mapping))
-                                           (local-path (if (string=? subdir ".")
-                                                           (string-append git-vendor-dir "/" local-dir)
-                                                           (string-append git-vendor-dir "/" local-dir "/" subdir)))
-                                           (git-pattern (string-append "git *= *\"" (regexp-quote git-url) "\""))
-                                           (path-replacement (string-append "path = \"" local-path "\"")))
-                                      (set! modified
-                                            (regexp-substitute/global #f git-pattern modified
-                                                                      'pre path-replacement 'post))))
-                                  git-mappings)
-                                 ;; Remove branch/rev attributes
-                                 (set! modified
-                                       (regexp-substitute/global #f ", *branch *= *\"[^\"]+\"" modified 'pre 'post))
-                                 (set! modified
-                                       (regexp-substitute/global #f ", *rev *= *\"[^\"]+\"" modified 'pre 'post))
-                                 (set! modified
-                                       (regexp-substitute/global #f "\n *branch *= *\"[^\"]+\"[^\n]*" modified 'pre 'post))
-                                 (set! modified
-                                       (regexp-substitute/global #f "\n *rev *= *\"[^\"]+\"[^\n]*" modified 'pre 'post))
-                                 (display modified port)))))))
-                     (find-files "." "^Cargo\\.toml$"))))))
+                (let ((git-vendor-dir (string-append (getcwd) "/git-vendor"))
+                      (git-mappings '#$%git-mappings))
+                  (for-each
+                   (lambda (cargo-toml)
+                     (let ((content (call-with-input-file cargo-toml get-string-all)))
+                       ;; Only process files that contain git dependencies
+                       (when (string-contains content "git = \"https://github.com")
+                         (call-with-output-file cargo-toml
+                           (lambda (port)
+                             (let ((modified content))
+                               ;; Replace git = "URL" with path = "LOCAL"
+                               (for-each
+                                (lambda (mapping)
+                                  (let* ((crate-name (car mapping))
+                                         (git-url (cadr mapping))
+                                         (local-dir (caddr mapping))
+                                         (subdir (cadddr mapping))
+                                         (local-path (if (string=? subdir ".")
+                                                         (string-append git-vendor-dir "/" local-dir)
+                                                         (string-append git-vendor-dir "/" local-dir "/" subdir)))
+                                         (git-pattern (string-append "git *= *\"" (regexp-quote git-url) "\""))
+                                         (path-replacement (string-append "path = \"" local-path "\"")))
+                                    (set! modified
+                                          (regexp-substitute/global #f git-pattern modified
+                                                                    'pre path-replacement 'post))))
+                                git-mappings)
+                               ;; Remove branch/rev attributes
+                               (set! modified
+                                     (regexp-substitute/global #f ", *branch *= *\"[^\"]+\"" modified 'pre 'post))
+                               (set! modified
+                                     (regexp-substitute/global #f ", *rev *= *\"[^\"]+\"" modified 'pre 'post))
+                               (set! modified
+                                     (regexp-substitute/global #f "\n *branch *= *\"[^\"]+\"[^\n]*" modified 'pre 'post))
+                               (set! modified
+                                     (regexp-substitute/global #f "\n *rev *= *\"[^\"]+\"[^\n]*" modified 'pre 'post))
+                               (display modified port)))))))
+                   (find-files "." "^Cargo\\.toml$")))))
 
             ;; Phase 5: Set up cargo config
             (add-after 'patch-cargo-toml-git-deps 'setup-cargo
