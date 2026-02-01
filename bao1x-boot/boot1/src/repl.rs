@@ -523,6 +523,21 @@ impl Repl {
                     crate::println!("");
 
                     let boot0_block = boot0_ptr as *const SignatureInFlash;
+                    let boot0_aad_len = unsafe { (*boot0_block).aad_len };
+                    crate::println!("boot0.aad_len:{}", boot0_aad_len);
+                    if boot0_aad_len > 0 {
+                        let boot0_aad = unsafe {
+                            core::slice::from_raw_parts(
+                                (*boot0_block).aad.as_ptr(),
+                                boot0_aad_len as usize
+                            )
+                        };
+                        crate::print!("boot0.aad:");
+                        for b in boot0_aad {
+                            crate::print!("{:02x}", b);
+                        }
+                        crate::println!("");
+                    }
                     let boot0_signed_len = unsafe { (*boot0_block).sealed_data.signed_len };
 
                     let boot0_sealed = unsafe {
@@ -568,6 +583,21 @@ impl Repl {
                     crate::println!("");
 
                     let boot1_sig_block = boot1_ptr as *const SignatureInFlash;
+                    let boot1_aad_len = unsafe { (*boot1_sig_block).aad_len };
+                    crate::println!("boot1.aad_len:{}", boot1_aad_len);
+                    if boot1_aad_len > 0 {
+                        let boot1_aad = unsafe {
+                            core::slice::from_raw_parts(
+                                (*boot1_sig_block).aad.as_ptr(),
+                                boot1_aad_len as usize
+                            )
+                        };
+                        crate::print!("boot1.aad:");
+                        for b in boot1_aad {
+                            crate::print!("{:02x}", b);
+                        }
+                        crate::println!("");
+                    }
                     let boot1_signed_len = unsafe { (*boot1_sig_block).sealed_data.signed_len };
 
                     let boot1_sealed = unsafe {
@@ -613,6 +643,21 @@ impl Repl {
                     crate::println!("");
 
                     let loader_block = loader_ptr as *const SignatureInFlash;
+                    let loader_aad_len = unsafe { (*loader_block).aad_len };
+                    crate::println!("loader.aad_len:{}", loader_aad_len);
+                    if loader_aad_len > 0 {
+                        let loader_aad = unsafe {
+                            core::slice::from_raw_parts(
+                                (*loader_block).aad.as_ptr(),
+                                loader_aad_len as usize
+                            )
+                        };
+                        crate::print!("loader.aad:");
+                        for b in loader_aad {
+                            crate::print!("{:02x}", b);
+                        }
+                        crate::println!("");
+                    }
                     let loader_signed_len = unsafe { (*loader_block).sealed_data.signed_len };
 
                     let loader_sealed = unsafe {
