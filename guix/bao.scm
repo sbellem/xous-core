@@ -476,6 +476,7 @@ for bao1x hardware.")
      `(("rust-xous" ,rust-xous)
        ("git" ,git)
        ("gcc-toolchain" ,gcc-toolchain)
+       ("gcc:lib" ,(@ (gnu packages gcc) gcc) "lib")  ; libgcc_s.so.1 for rust binaries
        ;; Essential utilities for --pure shell
        ("coreutils" ,coreutils)
        ("grep" ,grep)
