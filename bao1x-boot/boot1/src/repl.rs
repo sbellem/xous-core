@@ -501,6 +501,96 @@ impl Repl {
                     }
                 }
 
+                // ROM attestation data for reproducible build verification
+                crate::println!("");
+                crate::println!("=== ROM Attestation Data ===");
+                {
+                    use bao1x_api::signatures::{SignatureInFlash, SIGNATURE_LENGTH, UNSIGNED_LEN};
+                    use core::mem::size_of;
+
+                    // boot0 attestation
+                    crate::println!("-- boot0 --");
+                    let boot0_ptr = bao1x_api::BOOT0_START as *const u8;
+                    let boot0_sig = unsafe {
+                        core::slice::from_raw_parts(boot0_ptr.add(4), SIGNATURE_LENGTH)
+                    };
+                    crate::print!("boot0.sig:");
+                    for b in boot0_sig {
+                        crate::print!("{:02x}", b);
+                    }
+                    crate::println!("");
+
+                    let boot0_sealed = unsafe {
+                        core::slice::from_raw_parts(
+                            boot0_ptr.add(UNSIGNED_LEN),
+                            size_of::<bao1x_api::signatures::SealedFields>()
+                        )
+                    };
+                    crate::print!("boot0.sealed:");
+                    for b in boot0_sealed {
+                        crate::print!("{:02x}", b);
+                    }
+                    crate::println!("");
+
+                    let boot0_block = boot0_ptr as *const SignatureInFlash;
+                    crate::println!("boot0.signed_len:{}", unsafe { (*boot0_block).sealed_data.signed_len });
+
+                    // boot1 attestation
+                    crate::println!("-- boot1 --");
+                    let boot1_ptr = bao1x_api::BOOT1_START as *const u8;
+                    let boot1_sig = unsafe {
+                        core::slice::from_raw_parts(boot1_ptr.add(4), SIGNATURE_LENGTH)
+                    };
+                    crate::print!("boot1.sig:");
+                    for b in boot1_sig {
+                        crate::print!("{:02x}", b);
+                    }
+                    crate::println!("");
+
+                    let boot1_sealed = unsafe {
+                        core::slice::from_raw_parts(
+                            boot1_ptr.add(UNSIGNED_LEN),
+                            size_of::<bao1x_api::signatures::SealedFields>()
+                        )
+                    };
+                    crate::print!("boot1.sealed:");
+                    for b in boot1_sealed {
+                        crate::print!("{:02x}", b);
+                    }
+                    crate::println!("");
+
+                    let boot1_sig_block = boot1_ptr as *const SignatureInFlash;
+                    crate::println!("boot1.signed_len:{}", unsafe { (*boot1_sig_block).sealed_data.signed_len });
+
+                    // loader attestation
+                    crate::println!("-- loader --");
+                    let loader_ptr = bao1x_api::LOADER_START as *const u8;
+                    let loader_sig = unsafe {
+                        core::slice::from_raw_parts(loader_ptr.add(4), SIGNATURE_LENGTH)
+                    };
+                    crate::print!("loader.sig:");
+                    for b in loader_sig {
+                        crate::print!("{:02x}", b);
+                    }
+                    crate::println!("");
+
+                    let loader_sealed = unsafe {
+                        core::slice::from_raw_parts(
+                            loader_ptr.add(UNSIGNED_LEN),
+                            size_of::<bao1x_api::signatures::SealedFields>()
+                        )
+                    };
+                    crate::print!("loader.sealed:");
+                    for b in loader_sealed {
+                        crate::print!("{:02x}", b);
+                    }
+                    crate::println!("");
+
+                    let loader_block = loader_ptr as *const SignatureInFlash;
+                    crate::println!("loader.signed_len:{}", unsafe { (*loader_block).sealed_data.signed_len });
+                }
+                crate::println!("=== End ROM Attestation ===");
+
                 if !secure {
                     crate::println!("** System did not meet minimum requirements for security **");
                 }
@@ -734,6 +824,153 @@ impl Repl {
                     return Err(Error::help("Help: peek <addr> [count], addr is in hex, count in decimal"));
                 }
             }
+            "boot0-attest" => {
+                use bao1x_api::signatures::{SignatureInFlash, SIGNATURE_LENGTH, UNSIGNED_LEN};
+                use core::mem::size_of;
+
+                let boot0_ptr = bao1x_api::BOOT0_START as *const u8;
+
+                // Output signature (64 bytes at offset 4, after JAL instruction)
+                let sig = unsafe {
+                    core::slice::from_raw_parts(boot0_ptr.add(4), SIGNATURE_LENGTH)
+                };
+                crate::print!("sig:");
+                for b in sig {
+                    crate::print!("{:02x}", b);
+                }
+                crate::println!("");
+
+                // Output sealed_data
+                let sealed_data = unsafe {
+                    core::slice::from_raw_parts(
+                        boot0_ptr.add(UNSIGNED_LEN),
+                        size_of::<bao1x_api::signatures::SealedFields>()
+                    )
+                };
+                crate::print!("sealed:");
+                for b in sealed_data {
+                    crate::print!("{:02x}", b);
+                }
+                crate::println!("");
+
+                // Output signed_len from sealed_data
+                let sig_block = boot0_ptr as *const SignatureInFlash;
+                let signed_len = unsafe { (*sig_block).sealed_data.signed_len };
+                crate::println!("signed_len:{}", signed_len);
+
+                // Output verification result
+                match bao1x_hal::sigcheck::validate_image(BOOT0_SELF_CHECK, None, None) {
+                    Ok((k, k2, tag, target)) => {
+                        crate::println!(
+                            "verify:PASS:key{}:{}:target={:08x}",
+                            k,
+                            core::str::from_utf8(&tag).unwrap_or("????"),
+                            target ^ u32::from_le_bytes(tag)
+                        );
+                    }
+                    Err(e) => {
+                        crate::println!("verify:FAIL:{}", e);
+                    }
+                }
+            }
+            "boot1-attest" => {
+                use bao1x_api::signatures::{SignatureInFlash, SIGNATURE_LENGTH, UNSIGNED_LEN};
+                use core::mem::size_of;
+
+                let boot1_ptr = bao1x_api::BOOT1_START as *const u8;
+
+                // Output signature (64 bytes at offset 4, after JAL instruction)
+                let sig = unsafe {
+                    core::slice::from_raw_parts(boot1_ptr.add(4), SIGNATURE_LENGTH)
+                };
+                crate::print!("sig:");
+                for b in sig {
+                    crate::print!("{:02x}", b);
+                }
+                crate::println!("");
+
+                // Output sealed_data
+                let sealed_data = unsafe {
+                    core::slice::from_raw_parts(
+                        boot1_ptr.add(UNSIGNED_LEN),
+                        size_of::<bao1x_api::signatures::SealedFields>()
+                    )
+                };
+                crate::print!("sealed:");
+                for b in sealed_data {
+                    crate::print!("{:02x}", b);
+                }
+                crate::println!("");
+
+                // Output signed_len from sealed_data
+                let sig_block = boot1_ptr as *const SignatureInFlash;
+                let signed_len = unsafe { (*sig_block).sealed_data.signed_len };
+                crate::println!("signed_len:{}", signed_len);
+
+                // Output verification result
+                match bao1x_hal::sigcheck::validate_image(BOOT0_TO_BOOT1, None, None) {
+                    Ok((k, k2, tag, target)) => {
+                        crate::println!(
+                            "verify:PASS:key{}:{}:target={:08x}",
+                            k,
+                            core::str::from_utf8(&tag).unwrap_or("????"),
+                            target ^ u32::from_le_bytes(tag)
+                        );
+                    }
+                    Err(e) => {
+                        crate::println!("verify:FAIL:{}", e);
+                    }
+                }
+            }
+            "loader-attest" => {
+                use bao1x_api::signatures::{SignatureInFlash, SIGNATURE_LENGTH, UNSIGNED_LEN};
+                use core::mem::size_of;
+
+                let loader_ptr = bao1x_api::LOADER_START as *const u8;
+
+                // Output signature (64 bytes at offset 4, after JAL instruction)
+                let sig = unsafe {
+                    core::slice::from_raw_parts(loader_ptr.add(4), SIGNATURE_LENGTH)
+                };
+                crate::print!("sig:");
+                for b in sig {
+                    crate::print!("{:02x}", b);
+                }
+                crate::println!("");
+
+                // Output sealed_data
+                let sealed_data = unsafe {
+                    core::slice::from_raw_parts(
+                        loader_ptr.add(UNSIGNED_LEN),
+                        size_of::<bao1x_api::signatures::SealedFields>()
+                    )
+                };
+                crate::print!("sealed:");
+                for b in sealed_data {
+                    crate::print!("{:02x}", b);
+                }
+                crate::println!("");
+
+                // Output signed_len from sealed_data
+                let sig_block = loader_ptr as *const SignatureInFlash;
+                let signed_len = unsafe { (*sig_block).sealed_data.signed_len };
+                crate::println!("signed_len:{}", signed_len);
+
+                // Output verification result
+                match bao1x_hal::sigcheck::validate_image(BOOT1_TO_LOADER_OR_BAREMETAL, None, None) {
+                    Ok((k, k2, tag, target)) => {
+                        crate::println!(
+                            "verify:PASS:key{}:{}:target={:08x}",
+                            k,
+                            core::str::from_utf8(&tag).unwrap_or("????"),
+                            target ^ u32::from_le_bytes(tag)
+                        );
+                    }
+                    Err(e) => {
+                        crate::println!("verify:FAIL:{}", e);
+                    }
+                }
+            }
             "echo" => {
                 for word in args {
                     crate::print!("{} ", word);
@@ -743,7 +980,7 @@ impl Repl {
             _ => {
                 crate::println!("Command not recognized: {}", cmd);
                 crate::print!(
-                    "Commands include: reset, echo, altboot, boot, bootwait, idmode, localecho, uf2, boardtype, audit, lockdown, paranoid, self_destruct, ifr"
+                    "Commands include: reset, echo, altboot, boot, bootwait, idmode, localecho, uf2, boardtype, audit, lockdown, paranoid, self_destruct, ifr, boot0-attest, boot1-attest, loader-attest"
                 );
                 #[cfg(feature = "test-boot0-keys")]
                 crate::print!(", publock");
