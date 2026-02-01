@@ -1,0 +1,20 @@
+[package]
+name = "verify_ed25519ph"
+version = "0.1.0"
+edition = "2021"
+description = "Ed25519ph signature verification tool for Baochip attestation"
+
+# Keep this package out of the xous-core workspace
+[workspace]
+
+[profile.release]
+# Static linking for portability outside guix
+strip = true
+lto = true
+
+[dependencies]
+ed25519-dalek = { version = "2", features = ["digest"] }
+sha2 = "0.10"
+hex = "0.4"
+clap = { version = "4", features = ["derive"] }
+digest = "0.10"
