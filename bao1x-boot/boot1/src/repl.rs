@@ -507,6 +507,8 @@ impl Repl {
                 {
                     use bao1x_api::signatures::{SignatureInFlash, SIGNATURE_LENGTH, UNSIGNED_LEN};
                     use core::mem::size_of;
+                    use digest::Digest;
+                    use sha2_bao1x::Sha512;
 
                     // boot0 attestation
                     crate::println!("-- boot0 --");
@@ -520,6 +522,9 @@ impl Repl {
                     }
                     crate::println!("");
 
+                    let boot0_block = boot0_ptr as *const SignatureInFlash;
+                    let boot0_signed_len = unsafe { (*boot0_block).sealed_data.signed_len };
+
                     let boot0_sealed = unsafe {
                         core::slice::from_raw_parts(
                             boot0_ptr.add(UNSIGNED_LEN),
@@ -532,8 +537,23 @@ impl Repl {
                     }
                     crate::println!("");
 
-                    let boot0_block = boot0_ptr as *const SignatureInFlash;
-                    crate::println!("boot0.signed_len:{}", unsafe { (*boot0_block).sealed_data.signed_len });
+                    crate::println!("boot0.signed_len:{}", boot0_signed_len);
+
+                    // Compute hash of signed region (sealed_data || code)
+                    let boot0_signed_region = unsafe {
+                        core::slice::from_raw_parts(
+                            boot0_ptr.add(UNSIGNED_LEN),
+                            boot0_signed_len as usize
+                        )
+                    };
+                    let mut boot0_hasher = Sha512::new();
+                    boot0_hasher.update(boot0_signed_region);
+                    let boot0_hash = boot0_hasher.finalize();
+                    crate::print!("boot0.hash:");
+                    for b in boot0_hash.as_slice() {
+                        crate::print!("{:02x}", b);
+                    }
+                    crate::println!("");
 
                     // boot1 attestation
                     crate::println!("-- boot1 --");
@@ -547,6 +567,9 @@ impl Repl {
                     }
                     crate::println!("");
 
+                    let boot1_sig_block = boot1_ptr as *const SignatureInFlash;
+                    let boot1_signed_len = unsafe { (*boot1_sig_block).sealed_data.signed_len };
+
                     let boot1_sealed = unsafe {
                         core::slice::from_raw_parts(
                             boot1_ptr.add(UNSIGNED_LEN),
@@ -559,8 +582,23 @@ impl Repl {
                     }
                     crate::println!("");
 
-                    let boot1_sig_block = boot1_ptr as *const SignatureInFlash;
-                    crate::println!("boot1.signed_len:{}", unsafe { (*boot1_sig_block).sealed_data.signed_len });
+                    crate::println!("boot1.signed_len:{}", boot1_signed_len);
+
+                    // Compute hash of signed region
+                    let boot1_signed_region = unsafe {
+                        core::slice::from_raw_parts(
+                            boot1_ptr.add(UNSIGNED_LEN),
+                            boot1_signed_len as usize
+                        )
+                    };
+                    let mut boot1_hasher = Sha512::new();
+                    boot1_hasher.update(boot1_signed_region);
+                    let boot1_hash = boot1_hasher.finalize();
+                    crate::print!("boot1.hash:");
+                    for b in boot1_hash.as_slice() {
+                        crate::print!("{:02x}", b);
+                    }
+                    crate::println!("");
 
                     // loader attestation
                     crate::println!("-- loader --");
@@ -574,6 +612,9 @@ impl Repl {
                     }
                     crate::println!("");
 
+                    let loader_block = loader_ptr as *const SignatureInFlash;
+                    let loader_signed_len = unsafe { (*loader_block).sealed_data.signed_len };
+
                     let loader_sealed = unsafe {
                         core::slice::from_raw_parts(
                             loader_ptr.add(UNSIGNED_LEN),
@@ -586,8 +627,23 @@ impl Repl {
                     }
                     crate::println!("");
 
-                    let loader_block = loader_ptr as *const SignatureInFlash;
-                    crate::println!("loader.signed_len:{}", unsafe { (*loader_block).sealed_data.signed_len });
+                    crate::println!("loader.signed_len:{}", loader_signed_len);
+
+                    // Compute hash of signed region
+                    let loader_signed_region = unsafe {
+                        core::slice::from_raw_parts(
+                            loader_ptr.add(UNSIGNED_LEN),
+                            loader_signed_len as usize
+                        )
+                    };
+                    let mut loader_hasher = Sha512::new();
+                    loader_hasher.update(loader_signed_region);
+                    let loader_hash = loader_hasher.finalize();
+                    crate::print!("loader.hash:");
+                    for b in loader_hash.as_slice() {
+                        crate::print!("{:02x}", b);
+                    }
+                    crate::println!("");
                 }
                 crate::println!("=== End ROM Attestation ===");
 
@@ -827,6 +883,8 @@ impl Repl {
             "boot0-attest" => {
                 use bao1x_api::signatures::{SignatureInFlash, SIGNATURE_LENGTH, UNSIGNED_LEN};
                 use core::mem::size_of;
+                use digest::Digest;
+                use sha2_bao1x::Sha512;
 
                 let boot0_ptr = bao1x_api::BOOT0_START as *const u8;
 
@@ -841,6 +899,9 @@ impl Repl {
                 crate::println!("");
 
                 // Output sealed_data
+                let sig_block = boot0_ptr as *const SignatureInFlash;
+                let signed_len = unsafe { (*sig_block).sealed_data.signed_len };
+
                 let sealed_data = unsafe {
                     core::slice::from_raw_parts(
                         boot0_ptr.add(UNSIGNED_LEN),
@@ -853,10 +914,23 @@ impl Repl {
                 }
                 crate::println!("");
 
-                // Output signed_len from sealed_data
-                let sig_block = boot0_ptr as *const SignatureInFlash;
-                let signed_len = unsafe { (*sig_block).sealed_data.signed_len };
                 crate::println!("signed_len:{}", signed_len);
+
+                // Compute and output hash of signed region (sealed_data || code)
+                let signed_region = unsafe {
+                    core::slice::from_raw_parts(
+                        boot0_ptr.add(UNSIGNED_LEN),
+                        signed_len as usize
+                    )
+                };
+                let mut hasher = Sha512::new();
+                hasher.update(signed_region);
+                let hash = hasher.finalize();
+                crate::print!("hash:");
+                for b in hash.as_slice() {
+                    crate::print!("{:02x}", b);
+                }
+                crate::println!("");
 
                 // Output verification result
                 match bao1x_hal::sigcheck::validate_image(BOOT0_SELF_CHECK, None, None) {
@@ -876,6 +950,8 @@ impl Repl {
             "boot1-attest" => {
                 use bao1x_api::signatures::{SignatureInFlash, SIGNATURE_LENGTH, UNSIGNED_LEN};
                 use core::mem::size_of;
+                use digest::Digest;
+                use sha2_bao1x::Sha512;
 
                 let boot1_ptr = bao1x_api::BOOT1_START as *const u8;
 
@@ -890,6 +966,9 @@ impl Repl {
                 crate::println!("");
 
                 // Output sealed_data
+                let sig_block = boot1_ptr as *const SignatureInFlash;
+                let signed_len = unsafe { (*sig_block).sealed_data.signed_len };
+
                 let sealed_data = unsafe {
                     core::slice::from_raw_parts(
                         boot1_ptr.add(UNSIGNED_LEN),
@@ -902,10 +981,23 @@ impl Repl {
                 }
                 crate::println!("");
 
-                // Output signed_len from sealed_data
-                let sig_block = boot1_ptr as *const SignatureInFlash;
-                let signed_len = unsafe { (*sig_block).sealed_data.signed_len };
                 crate::println!("signed_len:{}", signed_len);
+
+                // Compute and output hash of signed region
+                let signed_region = unsafe {
+                    core::slice::from_raw_parts(
+                        boot1_ptr.add(UNSIGNED_LEN),
+                        signed_len as usize
+                    )
+                };
+                let mut hasher = Sha512::new();
+                hasher.update(signed_region);
+                let hash = hasher.finalize();
+                crate::print!("hash:");
+                for b in hash.as_slice() {
+                    crate::print!("{:02x}", b);
+                }
+                crate::println!("");
 
                 // Output verification result
                 match bao1x_hal::sigcheck::validate_image(BOOT0_TO_BOOT1, None, None) {
@@ -925,6 +1017,8 @@ impl Repl {
             "loader-attest" => {
                 use bao1x_api::signatures::{SignatureInFlash, SIGNATURE_LENGTH, UNSIGNED_LEN};
                 use core::mem::size_of;
+                use digest::Digest;
+                use sha2_bao1x::Sha512;
 
                 let loader_ptr = bao1x_api::LOADER_START as *const u8;
 
@@ -939,6 +1033,9 @@ impl Repl {
                 crate::println!("");
 
                 // Output sealed_data
+                let sig_block = loader_ptr as *const SignatureInFlash;
+                let signed_len = unsafe { (*sig_block).sealed_data.signed_len };
+
                 let sealed_data = unsafe {
                     core::slice::from_raw_parts(
                         loader_ptr.add(UNSIGNED_LEN),
@@ -951,10 +1048,23 @@ impl Repl {
                 }
                 crate::println!("");
 
-                // Output signed_len from sealed_data
-                let sig_block = loader_ptr as *const SignatureInFlash;
-                let signed_len = unsafe { (*sig_block).sealed_data.signed_len };
                 crate::println!("signed_len:{}", signed_len);
+
+                // Compute and output hash of signed region
+                let signed_region = unsafe {
+                    core::slice::from_raw_parts(
+                        loader_ptr.add(UNSIGNED_LEN),
+                        signed_len as usize
+                    )
+                };
+                let mut hasher = Sha512::new();
+                hasher.update(signed_region);
+                let hash = hasher.finalize();
+                crate::print!("hash:");
+                for b in hash.as_slice() {
+                    crate::print!("{:02x}", b);
+                }
+                crate::println!("");
 
                 // Output verification result
                 match bao1x_hal::sigcheck::validate_image(BOOT1_TO_LOADER_OR_BAREMETAL, None, None) {
