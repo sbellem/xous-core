@@ -505,17 +505,17 @@ impl Repl {
                 crate::println!("");
                 crate::println!("=== ROM Attestation Data ===");
                 {
-                    use bao1x_api::signatures::{SignatureInFlash, SIGNATURE_LENGTH, UNSIGNED_LEN};
                     use core::mem::size_of;
+
+                    use bao1x_api::signatures::{SIGNATURE_LENGTH, SignatureInFlash, UNSIGNED_LEN};
                     use digest::Digest;
                     use sha2_bao1x::Sha512;
 
                     // boot0 attestation
                     crate::println!("-- boot0 --");
                     let boot0_ptr = bao1x_api::BOOT0_START as *const u8;
-                    let boot0_sig = unsafe {
-                        core::slice::from_raw_parts(boot0_ptr.add(4), SIGNATURE_LENGTH)
-                    };
+                    let boot0_sig =
+                        unsafe { core::slice::from_raw_parts(boot0_ptr.add(4), SIGNATURE_LENGTH) };
                     crate::print!("boot0.sig:");
                     for b in boot0_sig {
                         crate::print!("{:02x}", b);
@@ -527,10 +527,7 @@ impl Repl {
                     crate::println!("boot0.aad_len:{}", boot0_aad_len);
                     if boot0_aad_len > 0 {
                         let boot0_aad = unsafe {
-                            core::slice::from_raw_parts(
-                                (*boot0_block).aad.as_ptr(),
-                                boot0_aad_len as usize
-                            )
+                            core::slice::from_raw_parts((*boot0_block).aad.as_ptr(), boot0_aad_len as usize)
                         };
                         crate::print!("boot0.aad:");
                         for b in boot0_aad {
@@ -543,7 +540,7 @@ impl Repl {
                     let boot0_sealed = unsafe {
                         core::slice::from_raw_parts(
                             boot0_ptr.add(UNSIGNED_LEN),
-                            size_of::<bao1x_api::signatures::SealedFields>()
+                            size_of::<bao1x_api::signatures::SealedFields>(),
                         )
                     };
                     crate::print!("boot0.sealed:");
@@ -556,10 +553,7 @@ impl Repl {
 
                     // Compute hash of signed region (sealed_data || code)
                     let boot0_signed_region = unsafe {
-                        core::slice::from_raw_parts(
-                            boot0_ptr.add(UNSIGNED_LEN),
-                            boot0_signed_len as usize
-                        )
+                        core::slice::from_raw_parts(boot0_ptr.add(UNSIGNED_LEN), boot0_signed_len as usize)
                     };
                     let mut boot0_hasher = Sha512::new();
                     boot0_hasher.update(boot0_signed_region);
@@ -573,9 +567,8 @@ impl Repl {
                     // boot1 attestation
                     crate::println!("-- boot1 --");
                     let boot1_ptr = bao1x_api::BOOT1_START as *const u8;
-                    let boot1_sig = unsafe {
-                        core::slice::from_raw_parts(boot1_ptr.add(4), SIGNATURE_LENGTH)
-                    };
+                    let boot1_sig =
+                        unsafe { core::slice::from_raw_parts(boot1_ptr.add(4), SIGNATURE_LENGTH) };
                     crate::print!("boot1.sig:");
                     for b in boot1_sig {
                         crate::print!("{:02x}", b);
@@ -589,7 +582,7 @@ impl Repl {
                         let boot1_aad = unsafe {
                             core::slice::from_raw_parts(
                                 (*boot1_sig_block).aad.as_ptr(),
-                                boot1_aad_len as usize
+                                boot1_aad_len as usize,
                             )
                         };
                         crate::print!("boot1.aad:");
@@ -603,7 +596,7 @@ impl Repl {
                     let boot1_sealed = unsafe {
                         core::slice::from_raw_parts(
                             boot1_ptr.add(UNSIGNED_LEN),
-                            size_of::<bao1x_api::signatures::SealedFields>()
+                            size_of::<bao1x_api::signatures::SealedFields>(),
                         )
                     };
                     crate::print!("boot1.sealed:");
@@ -616,10 +609,7 @@ impl Repl {
 
                     // Compute hash of signed region
                     let boot1_signed_region = unsafe {
-                        core::slice::from_raw_parts(
-                            boot1_ptr.add(UNSIGNED_LEN),
-                            boot1_signed_len as usize
-                        )
+                        core::slice::from_raw_parts(boot1_ptr.add(UNSIGNED_LEN), boot1_signed_len as usize)
                     };
                     let mut boot1_hasher = Sha512::new();
                     boot1_hasher.update(boot1_signed_region);
@@ -633,9 +623,8 @@ impl Repl {
                     // loader attestation
                     crate::println!("-- loader --");
                     let loader_ptr = bao1x_api::LOADER_START as *const u8;
-                    let loader_sig = unsafe {
-                        core::slice::from_raw_parts(loader_ptr.add(4), SIGNATURE_LENGTH)
-                    };
+                    let loader_sig =
+                        unsafe { core::slice::from_raw_parts(loader_ptr.add(4), SIGNATURE_LENGTH) };
                     crate::print!("loader.sig:");
                     for b in loader_sig {
                         crate::print!("{:02x}", b);
@@ -647,10 +636,7 @@ impl Repl {
                     crate::println!("loader.aad_len:{}", loader_aad_len);
                     if loader_aad_len > 0 {
                         let loader_aad = unsafe {
-                            core::slice::from_raw_parts(
-                                (*loader_block).aad.as_ptr(),
-                                loader_aad_len as usize
-                            )
+                            core::slice::from_raw_parts((*loader_block).aad.as_ptr(), loader_aad_len as usize)
                         };
                         crate::print!("loader.aad:");
                         for b in loader_aad {
@@ -663,7 +649,7 @@ impl Repl {
                     let loader_sealed = unsafe {
                         core::slice::from_raw_parts(
                             loader_ptr.add(UNSIGNED_LEN),
-                            size_of::<bao1x_api::signatures::SealedFields>()
+                            size_of::<bao1x_api::signatures::SealedFields>(),
                         )
                     };
                     crate::print!("loader.sealed:");
@@ -676,10 +662,7 @@ impl Repl {
 
                     // Compute hash of signed region
                     let loader_signed_region = unsafe {
-                        core::slice::from_raw_parts(
-                            loader_ptr.add(UNSIGNED_LEN),
-                            loader_signed_len as usize
-                        )
+                        core::slice::from_raw_parts(loader_ptr.add(UNSIGNED_LEN), loader_signed_len as usize)
                     };
                     let mut loader_hasher = Sha512::new();
                     loader_hasher.update(loader_signed_region);
@@ -926,17 +909,16 @@ impl Repl {
                 }
             }
             "boot0-attest" => {
-                use bao1x_api::signatures::{SignatureInFlash, SIGNATURE_LENGTH, UNSIGNED_LEN};
                 use core::mem::size_of;
+
+                use bao1x_api::signatures::{SIGNATURE_LENGTH, SignatureInFlash, UNSIGNED_LEN};
                 use digest::Digest;
                 use sha2_bao1x::Sha512;
 
                 let boot0_ptr = bao1x_api::BOOT0_START as *const u8;
 
                 // Output signature (64 bytes at offset 4, after JAL instruction)
-                let sig = unsafe {
-                    core::slice::from_raw_parts(boot0_ptr.add(4), SIGNATURE_LENGTH)
-                };
+                let sig = unsafe { core::slice::from_raw_parts(boot0_ptr.add(4), SIGNATURE_LENGTH) };
                 crate::print!("sig:");
                 for b in sig {
                     crate::print!("{:02x}", b);
@@ -950,7 +932,7 @@ impl Repl {
                 let sealed_data = unsafe {
                     core::slice::from_raw_parts(
                         boot0_ptr.add(UNSIGNED_LEN),
-                        size_of::<bao1x_api::signatures::SealedFields>()
+                        size_of::<bao1x_api::signatures::SealedFields>(),
                     )
                 };
                 crate::print!("sealed:");
@@ -962,12 +944,8 @@ impl Repl {
                 crate::println!("signed_len:{}", signed_len);
 
                 // Compute and output hash of signed region (sealed_data || code)
-                let signed_region = unsafe {
-                    core::slice::from_raw_parts(
-                        boot0_ptr.add(UNSIGNED_LEN),
-                        signed_len as usize
-                    )
-                };
+                let signed_region =
+                    unsafe { core::slice::from_raw_parts(boot0_ptr.add(UNSIGNED_LEN), signed_len as usize) };
                 let mut hasher = Sha512::new();
                 hasher.update(signed_region);
                 let hash = hasher.finalize();
@@ -993,17 +971,16 @@ impl Repl {
                 }
             }
             "boot1-attest" => {
-                use bao1x_api::signatures::{SignatureInFlash, SIGNATURE_LENGTH, UNSIGNED_LEN};
                 use core::mem::size_of;
+
+                use bao1x_api::signatures::{SIGNATURE_LENGTH, SignatureInFlash, UNSIGNED_LEN};
                 use digest::Digest;
                 use sha2_bao1x::Sha512;
 
                 let boot1_ptr = bao1x_api::BOOT1_START as *const u8;
 
                 // Output signature (64 bytes at offset 4, after JAL instruction)
-                let sig = unsafe {
-                    core::slice::from_raw_parts(boot1_ptr.add(4), SIGNATURE_LENGTH)
-                };
+                let sig = unsafe { core::slice::from_raw_parts(boot1_ptr.add(4), SIGNATURE_LENGTH) };
                 crate::print!("sig:");
                 for b in sig {
                     crate::print!("{:02x}", b);
@@ -1017,7 +994,7 @@ impl Repl {
                 let sealed_data = unsafe {
                     core::slice::from_raw_parts(
                         boot1_ptr.add(UNSIGNED_LEN),
-                        size_of::<bao1x_api::signatures::SealedFields>()
+                        size_of::<bao1x_api::signatures::SealedFields>(),
                     )
                 };
                 crate::print!("sealed:");
@@ -1029,12 +1006,8 @@ impl Repl {
                 crate::println!("signed_len:{}", signed_len);
 
                 // Compute and output hash of signed region
-                let signed_region = unsafe {
-                    core::slice::from_raw_parts(
-                        boot1_ptr.add(UNSIGNED_LEN),
-                        signed_len as usize
-                    )
-                };
+                let signed_region =
+                    unsafe { core::slice::from_raw_parts(boot1_ptr.add(UNSIGNED_LEN), signed_len as usize) };
                 let mut hasher = Sha512::new();
                 hasher.update(signed_region);
                 let hash = hasher.finalize();
@@ -1060,17 +1033,16 @@ impl Repl {
                 }
             }
             "loader-attest" => {
-                use bao1x_api::signatures::{SignatureInFlash, SIGNATURE_LENGTH, UNSIGNED_LEN};
                 use core::mem::size_of;
+
+                use bao1x_api::signatures::{SIGNATURE_LENGTH, SignatureInFlash, UNSIGNED_LEN};
                 use digest::Digest;
                 use sha2_bao1x::Sha512;
 
                 let loader_ptr = bao1x_api::LOADER_START as *const u8;
 
                 // Output signature (64 bytes at offset 4, after JAL instruction)
-                let sig = unsafe {
-                    core::slice::from_raw_parts(loader_ptr.add(4), SIGNATURE_LENGTH)
-                };
+                let sig = unsafe { core::slice::from_raw_parts(loader_ptr.add(4), SIGNATURE_LENGTH) };
                 crate::print!("sig:");
                 for b in sig {
                     crate::print!("{:02x}", b);
@@ -1084,7 +1056,7 @@ impl Repl {
                 let sealed_data = unsafe {
                     core::slice::from_raw_parts(
                         loader_ptr.add(UNSIGNED_LEN),
-                        size_of::<bao1x_api::signatures::SealedFields>()
+                        size_of::<bao1x_api::signatures::SealedFields>(),
                     )
                 };
                 crate::print!("sealed:");
@@ -1096,12 +1068,8 @@ impl Repl {
                 crate::println!("signed_len:{}", signed_len);
 
                 // Compute and output hash of signed region
-                let signed_region = unsafe {
-                    core::slice::from_raw_parts(
-                        loader_ptr.add(UNSIGNED_LEN),
-                        signed_len as usize
-                    )
-                };
+                let signed_region =
+                    unsafe { core::slice::from_raw_parts(loader_ptr.add(UNSIGNED_LEN), signed_len as usize) };
                 let mut hasher = Sha512::new();
                 hasher.update(signed_region);
                 let hash = hasher.finalize();
