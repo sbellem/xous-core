@@ -8,9 +8,12 @@ description = "Ed25519ph signature verification tool for Baochip attestation"
 [workspace]
 
 [profile.release]
-# Static linking for portability outside guix
 strip = true
 lto = true
+
+# Build inside guix shell with:
+#   RUSTFLAGS="-C link-args=-Wl,-rpath,$(dirname $(gcc -print-file-name=libgcc_s.so.1))" cargo build --release
+# This embeds the libgcc_s.so.1 path in the binary.
 
 [dependencies]
 ed25519-dalek = { version = "2", features = ["digest"] }

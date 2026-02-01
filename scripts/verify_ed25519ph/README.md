@@ -37,12 +37,12 @@ From `libs/bao1x-api/src/pubkeys/`:
 # Enter guix development shell
 guix shell -L guix -D xous-dev-shell
 
-# Build the verifier
+# Build the verifier (RUSTFLAGS embeds library path in binary)
 cd scripts/verify_ed25519ph
-cargo build --release
+RUSTFLAGS="-C link-args=-Wl,-rpath,$(dirname $(gcc -print-file-name=libgcc_s.so.1))" cargo build --release
 
-# Note: May need LD_LIBRARY_PATH workaround until guix shell is fixed
-alias verify='LD_LIBRARY_PATH=$(dirname $(gcc -print-file-name=libgcc_s.so.1)) ./target/release/verify_ed25519ph'
+# Verify it works
+./target/release/verify_ed25519ph --help
 ```
 
 ## Usage
@@ -54,20 +54,20 @@ The easiest way is to pipe the `audit` command output directly:
 ```bash
 # On device, run: audit
 # Save output to file, then:
-verify < audit.txt
+./target/release/verify_ed25519ph < audit.txt
 
 # Or for a specific stage:
-verify --name boot1 < audit.txt
+./target/release/verify_ed25519ph --name boot1 < audit.txt
 ```
 
 ### Manual Verification
 
 ```bash
 # Ed25519ph mode (boot1, loader)
-verify -p developer -H <sha512_hash> -s <signature> -n boot1
+./target/release/verify_ed25519ph -p developer -H <sha512_hash> -s <signature> -n boot1
 
 # FIDO2 mode (boot0) - requires AAD
-verify -p beta -H <sha512_hash> -s <signature> -a <aad_hex> -n boot0
+./target/release/verify_ed25519ph -p beta -H <sha512_hash> -s <signature> -a <aad_hex> -n boot0
 ```
 
 ### Options
@@ -103,7 +103,7 @@ Boot0: key 2/2 (beta) -> ...  # Shows which key signed it
 ### Step 2: Verify Signatures
 
 ```bash
-verify < audit.txt
+./target/release/verify_ed25519ph < audit.txt
 ```
 
 Expected output:
@@ -188,9 +188,9 @@ Typical AAD structure (37 bytes):
 
 ### "libgcc_s.so.1 not found"
 
-Use the LD_LIBRARY_PATH workaround:
+Rebuild with RUSTFLAGS to embed the library path:
 ```bash
-LD_LIBRARY_PATH=$(dirname $(gcc -print-file-name=libgcc_s.so.1)) ./target/release/verify_ed25519ph
+RUSTFLAGS="-C link-args=-Wl,-rpath,$(dirname $(gcc -print-file-name=libgcc_s.so.1))" cargo build --release
 ```
 
 ### "Unknown key tag"
