@@ -19,6 +19,7 @@
   #:use-module (gnu packages version-control)
   #:use-module (gnu packages commencement)
   #:use-module (gnu packages cross-base)
+  #:use-module (gnu packages llvm)
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 popen)
   #:use-module (ice-9 rdelim)
@@ -317,6 +318,8 @@
                 (let* ((rust-xous (assoc-ref inputs "rust-xous"))
                        (riscv-ld (search-input-file
                                   inputs "/bin/riscv32-none-elf-ld"))
+                       (ld-lld (search-input-file
+                                inputs "/bin/ld.lld"))
                        (vendor-dir (string-append (getcwd) "/vendor"))
                        ;; Offline vendor config (shared between main and locales)
                        (vendor-config
@@ -343,7 +346,8 @@
                         "[build]\n"
                         "rustflags = [\"--cfg\", \"crossbeam_no_atomic_64\"]\n\n"
                         "[target.riscv32imac-unknown-xous-elf]\n"
-                        "rustflags = [\"--cfg\", 'curve25519_dalek_backend=\"u32e_backend\"']\n\n"
+                        "linker = \"" ld-lld "\"\n"
+                        "rustflags = [\"-C\", \"linker-flavor=ld.lld\", \"--cfg\", 'curve25519_dalek_backend=\"u32e_backend\"']\n\n"
                         "[target.riscv32imac-unknown-none-elf]\n"
                         "linker = \"" riscv-ld "\"\n"
                         "rustflags = [\"-C\", \"linker-flavor=ld\", \"--cfg\", 'curve25519_dalek_backend=\"fiat\"']\n\n"
@@ -382,7 +386,7 @@
                    '("\\.uf2$" "\\.img$" "\\.bin$"))))))))
     (native-inputs
      `(("rust-xous" ,rust-xous)
-       ("riscv32-none-elf-gcc" ,(cross-gcc "riscv32-none-elf" #:libc #f))
+       ("lld" ,lld-18)
        ("riscv32-none-elf-binutils" ,(cross-binutils "riscv32-none-elf"))
        ("git" ,git)
        ("tar" ,tar)
