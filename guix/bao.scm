@@ -18,8 +18,6 @@
   #:use-module (gnu packages compression)
   #:use-module (gnu packages version-control)
   #:use-module (gnu packages commencement)
-  #:use-module (gnu packages cross-base)
-  #:use-module (gnu packages llvm)
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 popen)
   #:use-module (ice-9 rdelim)
@@ -386,8 +384,7 @@
                    '("\\.uf2$" "\\.img$" "\\.bin$"))))))))
     (native-inputs
      `(("rust-xous" ,rust-xous)
-       ("lld" ,lld-18)
-       ("riscv32-none-elf-binutils" ,(cross-binutils "riscv32-none-elf"))
+       ;; lld-18 and cross-binutils are propagated from rust-xous sysroots
        ("git" ,git)
        ("tar" ,tar)
        ("gzip" ,gzip)

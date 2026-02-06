@@ -5,11 +5,11 @@
  (directory "guix")
  (dependencies
   (channel
-   (name rust-xous)
-   (url "https://github.com/sbellem/rust-xous-guix")
+   (name baochan)
+   (url "https://github.com/sbellem/baochan")
    (branch "main")
    (introduction
     (channel-introduction
      (version 0)
-     (commit "bcdb7bb2b220288545114b140f5079ba4f98a157")
+     (commit "06e8707cac44731b16bfc46b3fb5c34427fc5efe")
      (signer "E39D 2B3D 0564 BA43 7BD9  2756 C38A E0EC CAB7 D5C8"))))))
