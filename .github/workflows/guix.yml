@@ -11,13 +11,15 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Dry-run: validates package definitions
+  # Dry-run: validates package definitions (fast, parallel)
   dry-run:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        channels: ['channels.scm', 'channels-codeberg.scm']
+        #channels: ["channels.scm", "channels-codeberg.scm"]
+        channels: ["channels.scm"]
+        task: ["bao1x-boot0", "bao1x-boot1", "bao1x-alt-boot1", "bao1x-baremetal-dabao", "dabao", "baosec"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,28 +31,20 @@ jobs:
           version: "1.5.0"
           pullAfterInstall: false
 
-      - name: Dry-run dabao
+      - name: Dry-run ${{ matrix.task }}
         run: |
           guix time-machine --channels=${{ matrix.channels }} \
-            -- build -L guix -e '(@ (bao) dabao)' --dry-run
+            -- build -L guix ${{ matrix.task }} --dry-run
 
-      - name: Dry-run bao1x-boot0
-        run: |
-          guix time-machine --channels=${{ matrix.channels }} \
-            -- build -L guix -e '(@ (bao) bao1x-boot0)' --dry-run
-
-      - name: Dry-run bao1x-boot1
-        run: |
-          guix time-machine --channels=${{ matrix.channels }} \
-            -- build -L guix -e '(@ (bao) bao1x-boot1)' --dry-run
-
-  # Full build: sequential steps share Guix store
+  # Full build with separate determinism check
   build:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        channels: ['channels.scm', 'channels-codeberg.scm']
+        #channels: ["channels.scm", "channels-codeberg.scm"]
+        channels: ["channels.scm"]
+        task: ["bao1x-boot0", "bao1x-boot1", "bao1x-alt-boot1", "bao1x-baremetal-dabao", "dabao", "baosec"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,77 +56,41 @@ jobs:
           version: "1.5.0"
           pullAfterInstall: false
 
-      - name: Create roots directory
-        run: mkdir -p roots
-
-      - name: Build dabao
+      - name: Build ${{ matrix.task }}
         run: |
           guix time-machine --channels=${{ matrix.channels }} \
-            -- build -L guix -e '(@ (bao) dabao)' --root=roots/dabao
+            -- build -L guix ${{ matrix.task }} --root=${{ matrix.task }}
 
-      - name: Build bao1x-boot0
+      - name: Check determinism ${{ matrix.task }}
         run: |
           guix time-machine --channels=${{ matrix.channels }} \
-            -- build -L guix -e '(@ (bao) bao1x-boot0)' --root=roots/bao1x-boot0
-
-      - name: Build bao1x-boot1
-        run: |
-          guix time-machine --channels=${{ matrix.channels }} \
-            -- build -L guix -e '(@ (bao) bao1x-boot1)' --root=roots/bao1x-boot1
-
-      - name: Build bao1x-alt-boot1
-        run: |
-          guix time-machine --channels=${{ matrix.channels }} \
-            -- build -L guix -e '(@ (bao) bao1x-alt-boot1)' --root=roots/bao1x-alt-boot1
-
-      - name: Build bao1x-baremetal-dabao
-        run: |
-          guix time-machine --channels=${{ matrix.channels }} \
-            -- build -L guix -e '(@ (bao) bao1x-baremetal-dabao)' --root=roots/bao1x-baremetal-dabao
-
-      - name: Check determinism (dabao)
-        id: deterministic-build-check
-        run: |
-          guix time-machine --channels=${{ matrix.channels }} \
-            -- build -L guix -e '(@ (bao) dabao)' --rounds=2
+            -- build -L guix ${{ matrix.task }} --check
 
       - name: Reproducibility summary
         if: always()
         run: |
-          echo "## Build Info (${{ matrix.channels }})" >> $GITHUB_STEP_SUMMARY
+          echo "## ${{ matrix.task }} (${{ matrix.channels }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Channel Configuration" >> $GITHUB_STEP_SUMMARY
-          echo '```scheme' >> $GITHUB_STEP_SUMMARY
-          cat ${{ matrix.channels }} >> $GITHUB_STEP_SUMMARY
+          echo "### Store Path" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Store Paths" >> $GITHUB_STEP_SUMMARY
-          echo '| Package | Store Path |' >> $GITHUB_STEP_SUMMARY
-          echo '|---------|------------|' >> $GITHUB_STEP_SUMMARY
-          for root in roots/*; do
-            name=$(basename "$root")
-            path=$(readlink -f "$root" 2>/dev/null || echo "N/A")
-            echo "| $name | \`$path\` |" >> $GITHUB_STEP_SUMMARY
-          done
+          readlink -f ${{ matrix.task }} 2>/dev/null || echo "Build failed"
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Copy artifacts
-        if: always()
+        if: success()
         run: |
           mkdir -p artifacts
-          for root in roots/*; do
-            cp "$root"/*.uf2 artifacts/ 2>/dev/null || true
-            cp "$root"/*.img artifacts/ 2>/dev/null || true
-            cp "$root"/*.bin artifacts/ 2>/dev/null || true
-          done
+          cp ${{ matrix.task }}/*.uf2 artifacts/ 2>/dev/null || true
+          cp ${{ matrix.task }}/*.img artifacts/ 2>/dev/null || true
+          cp ${{ matrix.task }}/*.bin artifacts/ 2>/dev/null || true
           ls -la artifacts/ || echo "No artifacts found"
 
       - name: Upload artifacts
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ matrix.channels }}
+          name: ${{ matrix.task }}-${{ matrix.channels }}
           path: |
             artifacts/
-            roots/
-            ${{ matrix.channels }}
+            ${{ matrix.task }}
           if-no-files-found: warn
