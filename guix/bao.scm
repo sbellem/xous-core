@@ -29,27 +29,31 @@
 (define %xous-git-tag "0.9.16")           ; git describe --abbrev=0
 (define %xous-git-tag-rev-count 7276)     ; git rev-list --count $(git describe --abbrev=0)
 
+;;; Get the source directory, with fallback for CI environments
+;;; where current-source-directory might return #f
+(define %source-dir
+  (or (and=> (current-source-directory) dirname)
+      (getcwd)))
+
 ;;; Helper to run git command at evaluation time
 (define (git-command . args)
   "Run a git command in the repo directory and return output, or #f on failure."
-  (let ((dir (dirname (current-source-directory))))
-    (false-if-exception
-     (let* ((port (apply open-pipe* OPEN_READ "git" "-C" dir args))
-            (output (read-line port))
-            (status (close-pipe port)))
-       (and (zero? (status:exit-val status))
-            (string? output)
-            output)))))
+  (false-if-exception
+   (let* ((port (apply open-pipe* OPEN_READ "git" "-C" %source-dir args))
+          (output (read-line port))
+          (status (close-pipe port)))
+     (and (zero? (status:exit-val status))
+          (string? output)
+          output))))
 
 ;;; Helper to check git command exit status only (for commands with no output)
 (define (git-status-zero? . args)
   "Run a git command and return #t if exit status is 0, #f otherwise."
-  (let ((dir (dirname (current-source-directory))))
-    (false-if-exception
-     (let* ((port (apply open-pipe* OPEN_READ "git" "-C" dir args))
-            (_ (get-string-all port))  ; consume any output
-            (status (close-pipe port)))
-       (zero? (status:exit-val status))))))
+  (false-if-exception
+   (let* ((port (apply open-pipe* OPEN_READ "git" "-C" %source-dir args))
+          (_ (get-string-all port))  ; consume any output
+          (status (close-pipe port)))
+     (zero? (status:exit-val status)))))
 
 ;;; Git revision (full 40-char hash) - detected at evaluation time
 ;;; Falls back to zeros if not in git repo or working tree is dirty
@@ -75,9 +79,9 @@
                  %git-hash))
 
 ;;; Local source from current repository (works for both local dev and CI)
-;;; Uses dirname to get parent of guix/ directory (the repo root)
+;;; Uses %source-dir which handles the case where current-source-directory is #f
 (define xous-core-local-source
-  (local-file (dirname (current-source-directory))
+  (local-file %source-dir
               #:recursive? #t
               #:select? (lambda (file stat)
                           (not (or (string-contains file "/target/")
