@@ -17,8 +17,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        #channels: ["channels.scm", "channels-codeberg.scm"]
-        channels: ["channels.scm"]
+        channels: ["channels.scm", "channels-codeberg.scm"]
+        #channels: ["channels.scm"]
         task: ["bao1x-boot0", "bao1x-boot1", "bao1x-alt-boot1", "bao1x-baremetal-dabao", "dabao", "baosec"]
     steps:
       - uses: actions/checkout@v4
@@ -42,8 +42,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        #channels: ["channels.scm", "channels-codeberg.scm"]
-        channels: ["channels.scm"]
+        channels: ["channels.scm", "channels-codeberg.scm"]
+        #channels: ["channels.scm"]
         task: ["bao1x-boot0", "bao1x-boot1", "bao1x-alt-boot1", "bao1x-baremetal-dabao", "dabao", "baosec"]
     steps:
       - uses: actions/checkout@v4
