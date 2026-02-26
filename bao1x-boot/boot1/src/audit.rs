@@ -1,6 +1,8 @@
 use core::convert::TryInto;
 
-use bao1x_api::pubkeys::{BOOT0_SELF_CHECK, BOOT0_TO_BOOT1, BOOT1_TO_LOADER_OR_BAREMETAL};
+use bao1x_api::pubkeys::{
+    BOOT0_SELF_CHECK, BOOT0_TO_BOOT1, BOOT1_TO_LOADER_OR_BAREMETAL, KEYSLOT_INITIAL_TAGS,
+};
 use bao1x_api::signatures::{SIGBLOCK_LEN, SignatureInFlash, UNSIGNED_LEN};
 use bao1x_api::*;
 use bao1x_hal::acram::OneWayCounter;
@@ -217,10 +219,22 @@ pub fn audit() {
     let reference_keys =
         [bao1x_api::BAO1_PUBKEY, bao1x_api::BAO2_PUBKEY, bao1x_api::BETA_PUBKEY, bao1x_api::DEV_PUBKEY];
     let slot_mgr = bao1x_hal::acram::SlotManager::new();
+    crate::println!("Public keys (IFR vs boot1 image):");
     let mut good_compare = true;
-    for (boot0_key, ref_key) in pk_src.sealed_data.pubkeys.iter().zip(reference_keys.iter()) {
+    for (i, (boot1_key, ref_key)) in pk_src.sealed_data.pubkeys.iter().zip(reference_keys.iter()).enumerate()
+    {
+        let tag_str = core::str::from_utf8(KEYSLOT_INITIAL_TAGS[i]).unwrap_or("????");
         let ref_data = slot_mgr.read(&ref_key).unwrap();
-        if ref_data != &boot0_key.pk {
+        let mut ifr_buf = [0u8; 64];
+        hex::encode_to_slice(ref_data, &mut ifr_buf).unwrap();
+        let ifr_hex = core::str::from_utf8(&ifr_buf).unwrap();
+        let mut img_buf = [0u8; 64];
+        hex::encode_to_slice(&boot1_key.pk, &mut img_buf).unwrap();
+        let img_hex = core::str::from_utf8(&img_buf).unwrap();
+        let status = if ref_data == &boot1_key.pk { "match" } else { "MISMATCH" };
+        crate::println!("  slot {} ({}): {} [{}]", i, tag_str, ifr_hex, status);
+        crate::println!("       image: {}", img_hex);
+        if ref_data != &boot1_key.pk {
             good_compare = false;
         }
     }
