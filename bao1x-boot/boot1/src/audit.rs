@@ -213,29 +213,72 @@ pub fn audit() {
 
     // detailed state checks
     let mut secure = true;
-    // check that boot1 pubkeys match the indelible entries
-    let pubkey_ptr = bao1x_api::BOOT1_START as *const bao1x_api::signatures::SignatureInFlash;
-    let pk_src: &bao1x_api::signatures::SignatureInFlash = unsafe { pubkey_ptr.as_ref().unwrap() };
-    let reference_keys =
-        [bao1x_api::BAO1_PUBKEY, bao1x_api::BAO2_PUBKEY, bao1x_api::BETA_PUBKEY, bao1x_api::DEV_PUBKEY];
-    let slot_mgr = bao1x_hal::acram::SlotManager::new();
-    crate::println!("Public keys (IFR vs boot1 image):");
+
+    // Show boot0 pubkeys - these are the reference keys boot0 uses to verify boot1's signature.
+    // A new boot1 image must be signed by a key matching one of these, or the chip will not boot it.
+    crate::println!("Public keys (boot0 reference):");
+    for (i, boot0_key) in b0_pk.sealed_data.pubkeys.iter().enumerate() {
+        let tag_str = core::str::from_utf8(KEYSLOT_INITIAL_TAGS[i]).unwrap_or("????");
+        let mut buf = [0u8; 64];
+        hex::encode_to_slice(&boot0_key.pk, &mut buf).unwrap();
+        let hex_str = core::str::from_utf8(&buf).unwrap();
+        crate::println!("  slot {} ({}): {}", i, tag_str, hex_str);
+    }
+
+    // Show IFR keys - the indelible hardware copy that boot0 also checks against.
+    // The IFR copy is split: 31 bytes per key + a separate MSB byte (the MSB doubles as
+    // a write-protect flag in the IFR region).
+    let ifr_keys_raw = [
+        unsafe { core::slice::from_raw_parts(0x6040_01A0 as *const u8, 31) },
+        unsafe { core::slice::from_raw_parts(0x6040_01C0 as *const u8, 31) },
+        unsafe { core::slice::from_raw_parts(0x6040_01E0 as *const u8, 31) },
+        unsafe { core::slice::from_raw_parts(0x6040_0200 as *const u8, 31) },
+    ];
+    let ifr_msb = unsafe { core::slice::from_raw_parts(0x6040_0240 as *const u8, 4) };
+    crate::println!("Public keys (IFR vs boot0 image):");
+    let mut ifr_compare = true;
+    for (i, (boot0_key, ifr_key)) in b0_pk.sealed_data.pubkeys.iter().zip(ifr_keys_raw.iter()).enumerate() {
+        let tag_str = core::str::from_utf8(KEYSLOT_INITIAL_TAGS[i]).unwrap_or("????");
+        // reconstruct the full 32-byte key from the 31-byte IFR region + MSB
+        let mut ifr_full = [0u8; 32];
+        ifr_full[..31].copy_from_slice(ifr_key);
+        ifr_full[31] = ifr_msb[i];
+        let matches = ifr_full == boot0_key.pk;
+        let mut ifr_buf = [0u8; 64];
+        hex::encode_to_slice(&ifr_full, &mut ifr_buf).unwrap();
+        let ifr_hex = core::str::from_utf8(&ifr_buf).unwrap();
+        let status = if matches { "match" } else { "MISMATCH" };
+        crate::println!("  slot {} ({}): {} [{}]", i, tag_str, ifr_hex, status);
+        if !matches {
+            ifr_compare = false;
+        }
+    }
+    if !ifr_compare {
+        crate::println!("== BOOT0 IMAGE DOES NOT MATCH IFR KEYS ==");
+        secure = false;
+    }
+
+    // check that boot1 pubkeys match boot0's reference keys
+    crate::println!("Public keys (boot0 vs boot1 image):");
     let mut good_compare = true;
-    for (i, (boot1_key, ref_key)) in pk_src.sealed_data.pubkeys.iter().zip(reference_keys.iter()).enumerate()
+    for (i, (boot0_key, boot1_key)) in
+        b0_pk.sealed_data.pubkeys.iter().zip(b1_pk.sealed_data.pubkeys.iter()).enumerate()
     {
         let tag_str = core::str::from_utf8(KEYSLOT_INITIAL_TAGS[i]).unwrap_or("????");
-        let ref_data = slot_mgr.read(&ref_key).unwrap();
-        let mut ifr_buf = [0u8; 64];
-        hex::encode_to_slice(ref_data, &mut ifr_buf).unwrap();
-        let ifr_hex = core::str::from_utf8(&ifr_buf).unwrap();
-        let mut img_buf = [0u8; 64];
-        hex::encode_to_slice(&boot1_key.pk, &mut img_buf).unwrap();
-        let img_hex = core::str::from_utf8(&img_buf).unwrap();
-        let status = if ref_data == &boot1_key.pk { "match" } else { "MISMATCH" };
-        crate::println!("  slot {} ({}): {} [{}]", i, tag_str, ifr_hex, status);
-        crate::println!("       image: {}", img_hex);
-        if ref_data != &boot1_key.pk {
+        let matches = boot0_key.pk == boot1_key.pk;
+        if !matches {
+            let mut b0_buf = [0u8; 64];
+            hex::encode_to_slice(&boot0_key.pk, &mut b0_buf).unwrap();
+            let b0_hex = core::str::from_utf8(&b0_buf).unwrap();
+            let mut b1_buf = [0u8; 64];
+            hex::encode_to_slice(&boot1_key.pk, &mut b1_buf).unwrap();
+            let b1_hex = core::str::from_utf8(&b1_buf).unwrap();
+            crate::println!("  slot {} ({}): MISMATCH", i, tag_str);
+            crate::println!("       boot0: {}", b0_hex);
+            crate::println!("       boot1: {}", b1_hex);
             good_compare = false;
+        } else {
+            crate::println!("  slot {} ({}): match", i, tag_str);
         }
     }
     if !good_compare {
