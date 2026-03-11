@@ -1,10 +1,12 @@
 ;;; Guix development environment for baochip
 ;;;
-;;; Usage:
-;;;   guix shell --pure --development --file=guix.scm
-;;;   cargo xtask dabao helloworld
+;;; Preferred usage (reproducible, pinned channels):
+;;;   guix time-machine -C channels.scm -- shell -m manifest.scm
+;;;
+;;; Quick usage (requires baobit channel configured):
+;;;   guix shell -m manifest.scm
 
 (use-modules (bao))
 
-;; Re-export the dev shell from bao.scm
-xous-dev-shell
+;; Default package for `guix build -f guix.scm`
+dabao-helloworld
