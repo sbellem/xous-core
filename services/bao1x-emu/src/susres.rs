@@ -81,7 +81,9 @@ fn susres_service() {
             Some(Opcode::RebootSocConfirm) => {
                 log::error!("RebootSocConfirm, but no prior Request. Ignoring.");
             }
-            Some(Opcode::RebootVector) => unimplemented!(),
+            Some(Opcode::RebootVector) => {
+                log::warn!("RebootVector not yet implemented in hosted mode");
+            }
             Some(Opcode::SuspendEventSubscribe) => {
                 let buffer = unsafe { Buffer::from_memory_message(msg.body.memory_message().unwrap()) };
                 let hookdata = buffer.to_original::<ScalarHook, _>().unwrap();
@@ -278,11 +280,11 @@ fn susres_service() {
                     // this should be the full power down - no RTC, no nothing - disconnect the battery
                     // for shipment. Battery life should be "years" in this mode.
                     // clk_mgr.force_power_off();
-                    todo!("implement force power off")
+                    log::warn!("implement force power off");
                 } else {
                     // this should be the deep sleep mode - battery is still connected, RTC running
                     // battery life is 100+ hours in this mode but not long enough for safe shipping
-                    todo!("implement deep sleep")
+                    log::warn!("implement deep sleep");
                 }
             }),
             Some(Opcode::Quit) => break,

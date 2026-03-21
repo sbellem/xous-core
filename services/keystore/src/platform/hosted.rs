@@ -134,7 +134,7 @@ pub fn keystore(sid: SID) -> ! {
                 buffer.replace(kwp).unwrap();
             }
             Opcode::EphemeralOp => {
-                todo!()
+                log::warn!("EphemeralOp not yet implemented in hosted mode");
             }
             _ => {
                 log::error!("Invalid call in keystore: {:?}", opcode);

@@ -131,7 +131,7 @@ impl<'a> Oled128x128 {
     pub fn blit_screen(&mut self, bmp: &[u32]) { self.buffer.copy_from_slice(bmp); }
 
     pub fn set_devboot(&mut self, _ena: bool) {
-        unimplemented!("devboot feature does not exist on this platform");
+        log::warn!("devboot feature does not exist on this platform");
     }
 
     pub fn stash(&mut self) { self.stash.copy_from_slice(&self.buffer); }

@@ -85,17 +85,17 @@ fn keyboard_service() {
                 }
             }
             Some(KeyboardOpcode::SelectKeyMap) => {
-                todo!();
+                log::warn!("SelectKeyMap not yet implemented in hosted mode");
             }
             Some(KeyboardOpcode::GetKeyMap) => msg_blocking_scalar_unpack!(msg, _, _, _, _, {
                 log::warn!("Defaulting to DVORAK map");
                 xous::return_scalar(msg.sender, KeyMap::Dvorak.into()).expect("can't retrieve keymap");
             }),
             Some(KeyboardOpcode::SetRepeat) => msg_scalar_unpack!(msg, _rate, _delay, _, _, {
-                todo!();
+                log::warn!("SetRepeat not yet implemented in hosted mode");
             }),
             Some(KeyboardOpcode::SetChordInterval) => msg_scalar_unpack!(msg, _delay, _, _, _, {
-                todo!();
+                log::warn!("SetChordInterval not yet implemented in hosted mode");
             }),
             Some(KeyboardOpcode::InjectKey) => msg_scalar_unpack!(msg, k, _, _, _, {
                 // key substitutions to help things work better
@@ -188,7 +188,7 @@ fn keyboard_service() {
                 }
             }),
             Some(KeyboardOpcode::HandlerTrigger) => {
-                todo!("Write this once we have an IRQ handler for keyboard interrupts");
+                log::warn!("Write this once we have an IRQ handler for keyboard interrupts");
             }
             None => {
                 log::error!("couldn't convert KeyboardOpcode");

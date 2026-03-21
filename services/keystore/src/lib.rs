@@ -55,7 +55,9 @@ impl Keystore {
         Err(KeywrapError::IntegrityCheckFailed)
     }
 
-    pub fn set_volatile_secret(&self, _secret: &[u8; 16]) { todo!() }
+    pub fn set_volatile_secret(&self, _secret: &[u8; 16]) {
+        log::warn!("set_volatile_secret not yet implemented in hosted mode");
+    }
 
     pub fn wrap_key(&self, input: &[u8]) -> Result<Vec<u8>, KeywrapError> {
         if input.len() > MAX_WRAP_DATA {

@@ -808,15 +808,15 @@ pub fn wrapped_main(main_thread_token: MainThreadToken) -> ! {
                     }
                 }
                 GfxOpcode::RestartBulkRead => {
-                    unimplemented!("Not needed for bao1x target");
+                    log::warn!("Not needed for bao1x target");
                 }
                 GfxOpcode::BulkReadFonts => {
-                    unimplemented!("Not needed for bao1x target");
+                    log::warn!("Not needed for bao1x target");
                 }
                 GfxOpcode::TestPattern => {
                     if let Some(scalar) = msg.body.scalar_message_mut() {
                         let _duration = scalar.arg1;
-                        todo!("Need to write this for factory testing");
+                        log::warn!("Need to write this for factory testing");
                     } else {
                         panic!("Incorrect message type");
                     }

@@ -127,10 +127,10 @@ fn main() {
                 log::error!("Invalid opcode received: {:?}", msg);
             }
             HalOpcode::SetPreemptionState => {
-                todo!("unimplemented opcode: {:?}", opcode);
+                log::warn!("unimplemented opcode: {:?}", opcode);
             }
             _ => {
-                unimplemented!("Not available in hosted mode");
+                log::warn!("Not available in hosted mode");
             }
         }
     }
