@@ -1,0 +1,31 @@
+[package]
+name = "ethapp-test"
+version = "0.1.0"
+edition = "2021"
+description = "Integration test app for the ethapp Ethereum signing service"
+license = "Apache-2.0 OR MIT"
+
+[[bin]]
+name = "ethapp-test"
+path = "src/main.rs"
+
+[dependencies]
+log = "0.4.14"
+xous = "0.9.70"
+xous-ipc = "0.10.10"
+log-server = { package = "xous-api-log", version = "0.1.69" }
+xous-names = { package = "xous-api-names", version = "0.9.71" }
+ticktimer-server = { package = "xous-api-ticktimer", version = "0.9.70" }
+
+# Ethapp client library
+ethapp-api = { path = "../../libs/ethapp-api" }
+ethapp-common = { path = "../../libs/ethapp-common" }
+
+# Hex encoding for display
+hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
+
+[features]
+default = []
+bao1x = []
+board-dabao = []
+hosted-dabao = []

@@ -125,6 +125,7 @@ members = [
   "bao1x-boot/sha2-bao1x",
   "apps-dabao/helloworld",
   "apps-dabao/dabao-console",
+  "apps-dabao/ethapp-test",
   "services/ethapp",
   "libs/ethapp-api",
   "libs/ethapp-common",

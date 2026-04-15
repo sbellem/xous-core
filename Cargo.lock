@@ -2459,6 +2459,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ethapp-test"
+version = "0.1.0"
+dependencies = [
+ "ethapp-api",
+ "ethapp-common",
+ "hex 0.4.3",
+ "log",
+ "xous 0.9.70 (registry+https://github.com/rust-lang/crates.io-index)",
+ "xous-api-log",
+ "xous-api-names",
+ "xous-api-ticktimer",
+ "xous-ipc 0.10.10 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "eyre"
 version = "0.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"

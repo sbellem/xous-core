@@ -370,6 +370,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "bao1x-emu",
                 "bao-console",
                 "modals",
+                "ethapp",
             ];
             builder.target_hosted_dabao().add_services(&bao_pkgs).add_apps(&get_cratespecs());
 
@@ -841,7 +842,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // minimal set of services for app development on a dabao. Need to save space for the app itself!
             let bao_rram_pkgs =
-                ["xous-ticktimer", "keystore", "xous-log", "xous-names", "usb-bao1x", "bao1x-hal-service"]
+                ["xous-ticktimer", "keystore", "xous-log", "xous-names", "usb-bao1x", "bao1x-hal-service", "ethapp"]
                     .to_vec();
             let bao_app_pkgs: Vec<&'static str> = [].to_vec();
 
