@@ -37,7 +37,7 @@ impl<'a> ShellCmdApi<'a> for Eth {
         use core::fmt::Write;
         let mut ret = String::new();
 
-        let helpstring = "eth [ping|config|address|accounts|signmsg|sign|gentx]";
+        let helpstring = "eth [ping|config|address|accounts|signmsg|sign|gentx|seedimport|mnimport]";
 
         let mut parts = args.split_whitespace();
         let cmd = parts.next().unwrap_or("").to_string();
@@ -166,11 +166,9 @@ impl<'a> ShellCmdApi<'a> for Eth {
                 }
             }
             "gentx" => {
-                // eth gentx <to> <value_wei>
-                // Builds a legacy EIP-155 transaction and signs it.
-                // Uses hardcoded nonce=0, gasPrice=1gwei, gasLimit=21000, chainId=1.
+                // eth gentx <to> <value_wei> [nonce=N] [chain=ID] [gasprice=WEI] [gaslimit=N]
                 if args.len() < 2 {
-                    write!(ret, "eth gentx <to_address> <value_wei>").unwrap();
+                    write!(ret, "eth gentx <to> <value_wei> [nonce=N] [chain=ID] [gasprice=WEI] [gaslimit=N]").unwrap();
                     return Ok(Some(ret));
                 }
                 let to_hex = args[0].strip_prefix("0x").unwrap_or(&args[0]);
@@ -189,15 +187,39 @@ impl<'a> ShellCmdApi<'a> for Eth {
                     }
                 };
 
-                // Build RLP for legacy EIP-155 tx: [nonce, gasPrice, gasLimit, to, value, data, chainId, 0, 0]
-                let tx_data = rlp_encode_legacy_tx(&to_addr, value_wei);
+                // Parse optional key=value parameters
+                let mut nonce: u64 = 0;
+                let mut chain_id: u64 = 11155111; // Sepolia
+                let mut gas_price: u64 = 1_000_000_000; // 1 gwei
+                let mut gas_limit: u64 = 21_000;
+                for arg in args.iter().skip(2) {
+                    if let Some((key, val)) = arg.split_once('=') {
+                        match key {
+                            "nonce" => nonce = val.parse().unwrap_or(0),
+                            "chain" => chain_id = val.parse().unwrap_or(11155111),
+                            "gasprice" => gas_price = val.parse().unwrap_or(1_000_000_000),
+                            "gaslimit" => gas_limit = val.parse().unwrap_or(21_000),
+                            _ => {
+                                write!(ret, "unknown param: {}", key).unwrap();
+                                return Ok(Some(ret));
+                            }
+                        }
+                    }
+                }
+
+                let tx_params = TxParams { nonce, gas_price, gas_limit, chain_id };
+                let tx_data = rlp_encode_legacy_tx(&to_addr, value_wei, &tx_params);
 
                 let path = Bip32Path::ethereum(0, 0, 0);
                 let request = SignTransactionRequest { path, tx_data };
                 let client = self.client()?;
                 match client.sign_transaction(&request) {
                     Ok(sig) => {
-                        write!(ret, "to: 0x{}\nvalue: {} wei\n", to_hex, value_wei).unwrap();
+                        write!(ret, "chain: {} ({})\n", chain_id, chain_name(chain_id)).unwrap();
+                        write!(ret, "to: 0x{}\n", to_hex).unwrap();
+                        write!(ret, "value: {} wei\n", value_wei).unwrap();
+                        write!(ret, "nonce: {}  gas: {}  gasPrice: {} wei\n",
+                            nonce, gas_limit, gas_price).unwrap();
                         write!(ret, "v={}\nr=", sig.v).unwrap();
                         for b in &sig.r {
                             write!(ret, "{:02x}", b).unwrap();
@@ -206,9 +228,8 @@ impl<'a> ShellCmdApi<'a> for Eth {
                         for b in &sig.s {
                             write!(ret, "{:02x}", b).unwrap();
                         }
-                        // Build the full signed transaction
                         let signed_tx = rlp_encode_signed_legacy_tx(
-                            &to_addr, value_wei, &sig.v, &sig.r, &sig.s,
+                            &to_addr, value_wei, &tx_params, &sig.v, &sig.r, &sig.s,
                         );
                         ret.push_str("\nraw: 0x");
                         for b in &signed_tx {
@@ -216,6 +237,55 @@ impl<'a> ShellCmdApi<'a> for Eth {
                         }
                     }
                     Err(e) => write!(ret, "gentx failed: {:?}", e).unwrap(),
+                }
+            }
+            "mnimport" => {
+                // eth mnimport <word1> <word2> ... <word12 or word24>
+                if args.len() != 12 && args.len() != 24 {
+                    write!(ret, "eth mnimport <12 or 24 BIP39 words>").unwrap();
+                    return Ok(Some(ret));
+                }
+                let mnemonic = args.join(" ");
+                let client = self.client()?;
+                match client.import_mnemonic(&mnemonic) {
+                    Ok(()) => {
+                        write!(ret, "mnemonic imported (in-memory, lost on reboot)").unwrap();
+                        // Show the derived address
+                        let path = Bip32Path::ethereum(0, 0, 0);
+                        if let Ok(addr) = client.get_address(&path) {
+                            ret.push_str("\naddress[0]: 0x");
+                            for b in &addr {
+                                write!(ret, "{:02x}", b).unwrap();
+                            }
+                        }
+                    }
+                    Err(e) => write!(ret, "mnimport failed: {:?}", e).unwrap(),
+                }
+            }
+            "seedimport" => {
+                // eth seedimport <128-char hex = 64 bytes>
+                if args.len() != 1 {
+                    write!(ret, "eth seedimport <64-byte-seed-hex>").unwrap();
+                    return Ok(Some(ret));
+                }
+                let hex_str = args[0].strip_prefix("0x").unwrap_or(&args[0]);
+                let seed_bytes = match hex_decode(hex_str) {
+                    Some(b) if b.len() == 64 => {
+                        let mut arr = [0u8; 64];
+                        arr.copy_from_slice(&b);
+                        arr
+                    }
+                    _ => {
+                        write!(ret, "invalid seed (need exactly 64 bytes / 128 hex chars)").unwrap();
+                        return Ok(Some(ret));
+                    }
+                };
+                let client = self.client()?;
+                match client.set_seed(&seed_bytes) {
+                    Ok(()) => {
+                        write!(ret, "seed imported (in-memory, lost on reboot)").unwrap();
+                    }
+                    Err(e) => write!(ret, "seedimport failed: {:?}", e).unwrap(),
                 }
             }
             _ => {
@@ -249,20 +319,28 @@ fn hex_nibble(b: u8) -> Option<u8> {
     }
 }
 
+struct TxParams {
+    nonce: u64,
+    gas_price: u64,
+    gas_limit: u64,
+    chain_id: u64,
+}
+
 /// Build RLP-encoded signed legacy transaction.
 /// Fields: [nonce, gasPrice, gasLimit, to, value, data, v, r, s]
-/// Hardcoded: nonce=0, gasPrice=1gwei, gasLimit=21000
-fn rlp_encode_signed_legacy_tx(to: &[u8], value_wei: u64, v: &u64, r: &[u8; 32], s: &[u8; 32]) -> Vec<u8> {
+fn rlp_encode_signed_legacy_tx(
+    to: &[u8], value_wei: u64, p: &TxParams, v: &u64, r: &[u8; 32], s: &[u8; 32],
+) -> Vec<u8> {
     let mut items = Vec::new();
-    items.extend_from_slice(&rlp_encode_u64(0));           // nonce
-    items.extend_from_slice(&rlp_encode_u64(1_000_000_000)); // gasPrice: 1 gwei
-    items.extend_from_slice(&rlp_encode_u64(21_000));      // gasLimit
-    items.extend_from_slice(&rlp_encode_bytes(to));        // to
-    items.extend_from_slice(&rlp_encode_u64(value_wei));   // value
+    items.extend_from_slice(&rlp_encode_u64(p.nonce));
+    items.extend_from_slice(&rlp_encode_u64(p.gas_price));
+    items.extend_from_slice(&rlp_encode_u64(p.gas_limit));
+    items.extend_from_slice(&rlp_encode_bytes(to));
+    items.extend_from_slice(&rlp_encode_u64(value_wei));
     items.extend_from_slice(&rlp_encode_bytes(&[]));       // data (empty)
-    items.extend_from_slice(&rlp_encode_u64(*v));          // v
-    items.extend_from_slice(&rlp_encode_bytes(trim_leading_zeros(r))); // r
-    items.extend_from_slice(&rlp_encode_bytes(trim_leading_zeros(s))); // s
+    items.extend_from_slice(&rlp_encode_u64(*v));
+    items.extend_from_slice(&rlp_encode_bytes(trim_leading_zeros(r)));
+    items.extend_from_slice(&rlp_encode_bytes(trim_leading_zeros(s)));
     rlp_encode_list(&items)
 }
 
@@ -273,19 +351,32 @@ fn trim_leading_zeros(bytes: &[u8]) -> &[u8] {
 
 /// Build RLP-encoded legacy EIP-155 transaction for signing.
 /// Fields: [nonce, gasPrice, gasLimit, to, value, data, chainId, 0, 0]
-/// Hardcoded: nonce=0, gasPrice=1gwei, gasLimit=21000, chainId=1
-fn rlp_encode_legacy_tx(to: &[u8], value_wei: u64) -> Vec<u8> {
+fn rlp_encode_legacy_tx(to: &[u8], value_wei: u64, p: &TxParams) -> Vec<u8> {
     let mut items = Vec::new();
-    items.extend_from_slice(&rlp_encode_u64(0));           // nonce
-    items.extend_from_slice(&rlp_encode_u64(1_000_000_000)); // gasPrice: 1 gwei
-    items.extend_from_slice(&rlp_encode_u64(21_000));      // gasLimit
-    items.extend_from_slice(&rlp_encode_bytes(to));        // to
-    items.extend_from_slice(&rlp_encode_u64(value_wei));   // value
+    items.extend_from_slice(&rlp_encode_u64(p.nonce));
+    items.extend_from_slice(&rlp_encode_u64(p.gas_price));
+    items.extend_from_slice(&rlp_encode_u64(p.gas_limit));
+    items.extend_from_slice(&rlp_encode_bytes(to));
+    items.extend_from_slice(&rlp_encode_u64(value_wei));
     items.extend_from_slice(&rlp_encode_bytes(&[]));       // data (empty)
-    items.extend_from_slice(&rlp_encode_u64(1));           // chainId (mainnet)
+    items.extend_from_slice(&rlp_encode_u64(p.chain_id));
     items.extend_from_slice(&rlp_encode_u64(0));           // 0 (EIP-155)
     items.extend_from_slice(&rlp_encode_u64(0));           // 0 (EIP-155)
     rlp_encode_list(&items)
+}
+
+fn chain_name(id: u64) -> &'static str {
+    match id {
+        1 => "mainnet",
+        5 => "goerli",
+        11155111 => "sepolia",
+        17000 => "holesky",
+        10 => "optimism",
+        42161 => "arbitrum",
+        137 => "polygon",
+        56 => "bsc",
+        _ => "unknown",
+    }
 }
 
 fn rlp_encode_u64(value: u64) -> Vec<u8> {

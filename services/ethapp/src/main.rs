@@ -158,6 +158,14 @@ fn handle_message(
             handlers::handle_get_address(state, msg)?;
         }
 
+        // === Seed Management ===
+        EthAppOp::SetSeed => {
+            handlers::handle_set_seed(state, msg)?;
+        }
+        EthAppOp::ImportMnemonic => {
+            handlers::handle_import_mnemonic(state, msg)?;
+        }
+
         // === Eth2 (placeholder) ===
         EthAppOp::Eth2GetPublicKey | EthAppOp::Eth2SetWithdrawalIndex => {
             handlers::return_error(msg, EthAppError::UnsupportedOperation)?;

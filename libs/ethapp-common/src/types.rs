@@ -720,3 +720,37 @@ mod tests {
         assert_eq!(resp.address, [0u8; 20]);
     }
 }
+
+// =============================================================================
+// Mnemonic Import
+// =============================================================================
+
+/// Fixed-size container for transmitting a mnemonic string via IPC.
+#[derive(Clone, Archive, Serialize, Deserialize)]
+pub struct MnemonicImport {
+    /// Length of the mnemonic string in bytes.
+    pub len: u32,
+    /// Mnemonic bytes (zero-padded).
+    pub data: [u8; 256],
+}
+
+impl MnemonicImport {
+    /// Create from a mnemonic string. Returns None if too long.
+    pub fn from_str(s: &str) -> Option<Self> {
+        let bytes = s.as_bytes();
+        if bytes.len() > 256 {
+            return None;
+        }
+        let mut data = [0u8; 256];
+        data[..bytes.len()].copy_from_slice(bytes);
+        Some(Self {
+            len: bytes.len() as u32,
+            data,
+        })
+    }
+
+    /// Get the mnemonic as a byte slice.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.data[..self.len as usize]
+    }
+}

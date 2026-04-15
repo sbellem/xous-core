@@ -40,6 +40,9 @@ pub struct ServiceState {
     /// Application configuration.
     pub config: AppConfiguration,
 
+    /// Imported seed (set at runtime via SetSeed opcode).
+    pub imported_seed: Option<crate::crypto::Seed>,
+
     /// Cached token information (key: chain_id:address).
     token_cache: BTreeMap<(u64, EthAddress), TokenInfo>,
 
@@ -79,6 +82,7 @@ impl ServiceState {
             platform: XousPlatform::new(),
             #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
             platform: MockPlatform::new(),
+            imported_seed: None,
             config: AppConfiguration {
                 version_major: 0,
                 version_minor: 1,

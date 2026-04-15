@@ -281,7 +281,7 @@ impl HmacSha512Hasher {
 ///
 /// - Zeroized on drop to prevent residual secret material in memory.
 /// - The inner 64-byte array holds the full BIP39 seed.
-#[derive(Zeroize)]
+#[derive(Clone, Zeroize)]
 #[zeroize(drop)]
 pub struct Seed([u8; 64]);
 
@@ -324,6 +324,47 @@ pub fn get_dev_seed() -> Seed {
         0xce, 0x9e, 0x38, 0xe4,
     ];
     Seed::from_bytes(&seed_bytes)
+}
+
+/// Derive a BIP39 seed from a mnemonic using PBKDF2-HMAC-SHA512.
+///
+/// Standard BIP39: 2048 rounds, salt = "mnemonic" (no passphrase).
+pub fn seed_from_mnemonic(mnemonic: &[u8]) -> Seed {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha512;
+
+    type HmacSha512 = Hmac<Sha512>;
+
+    let salt = b"mnemonic"; // BIP39 with empty passphrase
+    let rounds = 2048;
+
+    // PBKDF2-HMAC-SHA512
+    let mut dk = [0u8; 64]; // derived key (512 bits)
+
+    // U1 = PRF(password, salt || INT_32_BE(1))
+    let mut salt_block = [0u8; 12]; // "mnemonic" (8) + block index (4)
+    salt_block[..8].copy_from_slice(salt);
+    salt_block[8..12].copy_from_slice(&1u32.to_be_bytes());
+
+    let mut mac = HmacSha512::new_from_slice(mnemonic).expect("HMAC accepts any key length");
+    mac.update(&salt_block);
+    let u = mac.finalize().into_bytes();
+    let mut u_prev = [0u8; 64];
+    u_prev.copy_from_slice(&u);
+    dk.copy_from_slice(&u);
+
+    // Subsequent rounds: U_i = PRF(password, U_{i-1}), dk ^= U_i
+    for _ in 1..rounds {
+        let mut mac = HmacSha512::new_from_slice(mnemonic).expect("HMAC accepts any key length");
+        mac.update(&u_prev);
+        let u = mac.finalize().into_bytes();
+        u_prev.copy_from_slice(&u);
+        for (dk_byte, u_byte) in dk.iter_mut().zip(u.iter()) {
+            *dk_byte ^= u_byte;
+        }
+    }
+
+    Seed::from_bytes(&dk)
 }
 
 /// Derive a private key from seed using BIP32/BIP44 path.

@@ -105,6 +105,18 @@ pub enum EthAppOp {
     /// Returns: 20-byte address.
     GetAddress = 0x51,
 
+    // === Seed Management (0x60-0x6F) ===
+
+    /// Import a 64-byte seed for key derivation.
+    /// Input: 64 bytes via memory message.
+    /// Returns: success or error.
+    SetSeed = 0x60,
+
+    /// Import a BIP39 mnemonic and derive the seed via PBKDF2.
+    /// Input: mnemonic string via memory message.
+    /// Returns: success or error.
+    ImportMnemonic = 0x61,
+
     // === Internal/Debug (0xF0-0xFF) ===
 
     /// Clear all cached metadata.
@@ -221,6 +233,7 @@ mod tests {
             EthAppOp::ByContractAddressAndChain,
             EthAppOp::Eth2GetPublicKey, EthAppOp::Eth2SetWithdrawalIndex,
             EthAppOp::GetPublicKey, EthAppOp::GetAddress,
+            EthAppOp::SetSeed, EthAppOp::ImportMnemonic,
             EthAppOp::ClearMetadataCache, EthAppOp::GetStats, EthAppOp::Ping,
         ];
         for op in &ops {

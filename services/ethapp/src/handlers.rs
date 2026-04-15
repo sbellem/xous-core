@@ -68,69 +68,27 @@ fn write_error_response(buffer: &mut xous_ipc::Buffer, error: EthAppError) {
 ///
 /// Both dev-mode and production paths return the same type to prevent
 /// compilation errors where callers use `?` for one cfg but not the other.
-#[cfg(feature = "dev-mode")]
-fn get_seed() -> Result<crate::crypto::Seed, EthAppError> {
-    Ok(crate::crypto::get_dev_seed())
-}
+///
+/// Get the seed for key derivation.
+///
+/// Priority: imported seed (runtime) > dev seed (dev-mode) > error.
+fn get_seed(state: &ServiceState) -> Result<crate::crypto::Seed, EthAppError> {
+    // Check for runtime-imported seed first
+    if let Some(seed) = &state.imported_seed {
+        return Ok(seed.clone());
+    }
 
-#[cfg(not(feature = "dev-mode"))]
-fn get_seed() -> Result<crate::crypto::Seed, EthAppError> {
-    // Production seed loading via PDDB secure storage.
-    //
-    // The master seed is stored encrypted in the PDDB under the
-    // "ethapp.ethereum" dictionary with key "master_seed". The PDDB
-    // provides plausible deniability through its basis system and
-    // encrypts all data at rest.
-    //
-    // # Security Model
-    //
-    // - The seed is derived during device initialization from the user's
-    //   BIP39 mnemonic and stored in PDDB under PIN/password protection.
-    // - The PDDB basis must be unlocked (user authenticated) before the
-    //   seed can be read. If the basis is locked, this returns an error.
-    // - The seed bytes are validated for length (exactly 64 bytes) before
-    //   constructing the Seed type. This prevents truncation attacks.
-    // - On the Baochip-1x, the PDDB encryption key is derived from the
-    //   device root key stored in the hardware keystore (efuse-protected).
-    //
-    // # Docs consulted
-    //
-    // - xous-core services/pddb/src/lib.rs: Pddb::get() API
-    // - platform.rs: PDDB_DICT, PDDB_KEY_SEED constants
-    //
-    // TODO(baochip): Implement actual PDDB read when pddb crate is
-    // available in the Baochip Xous build. The implementation will be:
-    //
-    //   let pddb = pddb::Pddb::new();
-    //   pddb.is_mounted_blocking(); // ensure PDDB is ready
-    //   let mut handle = pddb.get(
-    //       crate::platform::PDDB_DICT,
-    //       crate::platform::PDDB_KEY_SEED,
-    //       None,               // default basis (user's unlocked basis)
-    //       false,              // do not create if missing
-    //       false,              // no alloc
-    //       None,               // no size hint
-    //       None::<fn()>,       // no change callback
-    //   ).map_err(|_| EthAppError::StorageError)?;
-    //
-    //   use std::io::Read;
-    //   let mut seed_bytes = [0u8; 64];
-    //   let bytes_read = handle.read(&mut seed_bytes)
-    //       .map_err(|_| EthAppError::StorageError)?;
-    //   if bytes_read != 64 {
-    //       // Truncated or corrupt seed -- fail closed.
-    //       seed_bytes.zeroize();
-    //       return Err(EthAppError::StorageError);
-    //   }
-    //
-    //   // Alternatively, for Baochip-1x: the 256-bit Backup Register
-    //   // could hold a master secret that is KDF'd into the full seed.
-    //   // This would require: backup_reg_read() -> HKDF-SHA256 -> 64-byte seed
-    //
-    //   Ok(crate::crypto::Seed::from_bytes(&seed_bytes))
-    //
-    // Until PDDB is integrated, fail closed.
-    Err(EthAppError::UnsupportedOperation)
+    // Fall back to dev seed or error
+    #[cfg(feature = "dev-mode")]
+    {
+        return Ok(crate::crypto::get_dev_seed());
+    }
+
+    #[cfg(not(feature = "dev-mode"))]
+    {
+        // TODO(baochip): Load from PDDB when available
+        Err(EthAppError::UnsupportedOperation)
+    }
 }
 
 // =============================================================================
@@ -259,7 +217,7 @@ fn process_sign_transaction(
     // Get seed and derive key; sign in a tight scope so the signing key
     // is dropped (and zeroized via k256's ZeroizeOnDrop) immediately after use.
     let signature = {
-        let seed = get_seed()?;
+        let seed = get_seed(state)?;
         let signing_key = derive_private_key(&seed, &request.path)?;
         // seed is Zeroize+Drop, signing_key has ZeroizeOnDrop
         sign_eth(&signing_key, &tx.sign_hash, tx.chain_id, tx.tx_type)?
@@ -355,7 +313,7 @@ fn process_sign_personal_message(
     // Get seed and derive key; sign in a tight scope so the signing key
     // is dropped (and zeroized via k256's ZeroizeOnDrop) immediately after use.
     let signature = {
-        let seed = get_seed()?;
+        let seed = get_seed(state)?;
         let signing_key = derive_private_key(&seed, &request.path)?;
         sign_personal_message(&signing_key, &request.message)?
         // signing_key and seed dropped here, secret material zeroized
@@ -431,7 +389,7 @@ fn process_sign_eip712_hashed(
     // Get seed and derive key; sign in a tight scope so the signing key
     // is dropped (and zeroized via k256's ZeroizeOnDrop) immediately after use.
     let signature = {
-        let seed = get_seed()?;
+        let seed = get_seed(state)?;
         let signing_key = derive_private_key(&seed, &request.path)?;
         sign_eip712(&signing_key, &request.domain_hash, &request.message_hash)?
         // signing_key and seed dropped here, secret material zeroized
@@ -513,7 +471,7 @@ fn process_sign_eip712_message(
     // Get seed and derive key; sign in a tight scope so the signing key
     // is dropped (and zeroized via k256's ZeroizeOnDrop) immediately after use.
     let signature = {
-        let seed = get_seed()?;
+        let seed = get_seed(state)?;
         let signing_key = derive_private_key(&seed, &request.path)?;
         sign_eip712(&signing_key, &domain_hash, &message_hash)?
         // signing_key and seed dropped here, secret material zeroized
@@ -731,7 +689,7 @@ pub fn handle_get_public_key(
         .to_original()
         .map_err(|_| EthAppError::SerializationError)?;
 
-    match process_get_public_key(&path) {
+    match process_get_public_key(state, &path) {
         Ok(response) => buffer.replace(response).map_err(|_| EthAppError::InternalError)?,
         Err(e) => write_error_response(&mut buffer, e),
     }
@@ -740,20 +698,20 @@ pub fn handle_get_public_key(
 
 #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub fn handle_get_public_key(
-    _state: &mut ServiceState,
+    state: &mut ServiceState,
     path: &Bip32Path,
 ) -> Result<PublicKeyResponse, EthAppError> {
-    process_get_public_key(path)
+    process_get_public_key(state, path)
 }
 
-fn process_get_public_key(path: &Bip32Path) -> Result<PublicKeyResponse, EthAppError> {
+fn process_get_public_key(state: &ServiceState, path: &Bip32Path) -> Result<PublicKeyResponse, EthAppError> {
     if !path.is_valid_ethereum_path() {
         return Err(EthAppError::InvalidDerivationPath);
     }
 
     // Derive key in a scope to ensure prompt zeroization of secret material.
     let (pubkey, address) = {
-        let seed = get_seed()?;
+        let seed = get_seed(state)?;
         let signing_key = derive_private_key(&seed, path)?;
         let pk = get_compressed_pubkey(&signing_key);
         let addr = public_key_to_address(&get_public_key(&signing_key));
@@ -782,7 +740,7 @@ pub fn handle_get_address(
         .to_original()
         .map_err(|_| EthAppError::SerializationError)?;
 
-    match process_get_public_key(&path) {
+    match process_get_public_key(state, &path) {
         Ok(response) => buffer.replace(response.address).map_err(|_| EthAppError::InternalError)?,
         Err(e) => write_error_response(&mut buffer, e),
     }
@@ -791,10 +749,10 @@ pub fn handle_get_address(
 
 #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub fn handle_get_address(
-    _state: &mut ServiceState,
+    state: &mut ServiceState,
     path: &Bip32Path,
 ) -> Result<[u8; 20], EthAppError> {
-    let response = process_get_public_key(path)?;
+    let response = process_get_public_key(state, path)?;
     Ok(response.address)
 }
 
@@ -824,4 +782,82 @@ pub fn handle_get_stats(
 ) -> Result<(u64, u64, u64), EthAppError> {
     let stats = state.get_stats();
     Ok((stats.signs_completed, stats.signs_rejected, stats.errors))
+}
+
+// =============================================================================
+// Seed Management Handlers
+// =============================================================================
+
+/// Handle SetSeed request — import a 64-byte seed at runtime.
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+pub fn handle_set_seed(
+    state: &mut ServiceState,
+    mut msg: xous::MessageEnvelope,
+) -> Result<(), EthAppError> {
+    use xous_ipc::Buffer;
+
+    let buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
+
+    let seed_bytes: [u8; 64] = buffer
+        .to_original()
+        .map_err(|_| EthAppError::SerializationError)?;
+
+    state.imported_seed = Some(crate::crypto::Seed::from_bytes(&seed_bytes));
+    log::info!("ethapp: Seed imported (64 bytes)");
+
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
+pub fn handle_set_seed(
+    state: &mut ServiceState,
+    seed_bytes: &[u8; 64],
+) -> Result<(), EthAppError> {
+    state.imported_seed = Some(crate::crypto::Seed::from_bytes(seed_bytes));
+    Ok(())
+}
+
+/// Handle ImportMnemonic request — derive seed from BIP39 mnemonic via PBKDF2.
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+pub fn handle_import_mnemonic(
+    state: &mut ServiceState,
+    mut msg: xous::MessageEnvelope,
+) -> Result<(), EthAppError> {
+    use xous_ipc::Buffer;
+    use ethapp_common::MnemonicImport;
+
+    let buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
+
+    let import: MnemonicImport = buffer
+        .to_original()
+        .map_err(|_| EthAppError::SerializationError)?;
+
+    let mnemonic_bytes = import.as_bytes();
+    if mnemonic_bytes.is_empty() {
+        return Err(EthAppError::InvalidData);
+    }
+
+    let seed = crate::crypto::seed_from_mnemonic(mnemonic_bytes);
+    state.imported_seed = Some(seed);
+    log::info!("ethapp: Seed derived from mnemonic ({} bytes)", mnemonic_bytes.len());
+
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
+pub fn handle_import_mnemonic(
+    state: &mut ServiceState,
+    mnemonic: &str,
+) -> Result<(), EthAppError> {
+    let seed = crate::crypto::seed_from_mnemonic(mnemonic.as_bytes());
+    state.imported_seed = Some(seed);
+    Ok(())
 }

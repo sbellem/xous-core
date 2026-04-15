@@ -106,6 +106,30 @@ impl EthAppClient {
     }
 
     // =========================================================================
+    // Seed Management
+    // =========================================================================
+
+    /// Import a 64-byte seed for key derivation.
+    ///
+    /// The seed is stored in memory only (lost on reboot).
+    /// Takes priority over the dev seed and PDDB seed.
+    pub fn set_seed(&self, seed: &[u8; 64]) -> Result<(), ApiError> {
+        self.send_memory(EthAppOp::SetSeed, seed)
+    }
+
+    /// Import a BIP39 mnemonic and derive the seed via PBKDF2.
+    ///
+    /// The service performs PBKDF2-HMAC-SHA512 (2048 rounds) to derive
+    /// the 64-byte seed from the mnemonic. The seed is stored in memory
+    /// only (lost on reboot).
+    pub fn import_mnemonic(&self, mnemonic: &str) -> Result<(), ApiError> {
+        use ethapp_common::MnemonicImport;
+        let import = MnemonicImport::from_str(mnemonic)
+            .ok_or_else(|| ApiError::SerializationFailed("mnemonic too long (max 256 bytes)".into()))?;
+        self.send_memory(EthAppOp::ImportMnemonic, &import)
+    }
+
+    // =========================================================================
     // Key Management
     // =========================================================================
 
@@ -333,6 +357,41 @@ impl EthAppClient {
         )
         .map_err(|e| ApiError::IpcFailed(format!("{:?}", e)))?;
 
+        Ok(())
+    }
+
+    /// Sends a memory message (fire-and-forget, no typed response).
+    #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+    fn send_memory<T>(&self, op: EthAppOp, request: &T) -> Result<(), ApiError>
+    where
+        T: Clone
+            + for<'b, 'a> rkyv::Serialize<
+                rkyv::rancor::Strategy<
+                    rkyv::ser::Serializer<
+                        rkyv::ser::writer::Buffer<'b>,
+                        rkyv::ser::allocator::SubAllocator<'a>,
+                        (),
+                    >,
+                    rkyv::rancor::Failure,
+                >,
+            >,
+    {
+        let opcode = op.to_u32().ok_or_else(|| {
+            ApiError::SerializationFailed("Invalid opcode".to_string())
+        })?;
+
+        let mut buf = xous_ipc::Buffer::new(4096);
+        buf.replace(request.clone())
+            .map_err(|_| ApiError::SerializationFailed("Buffer serialization failed".to_string()))?;
+
+        buf.lend_mut(self.conn, opcode as u32)
+            .map_err(|e| ApiError::IpcFailed(format!("{:?}", e)))?;
+
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
+    fn send_memory<T>(&self, _op: EthAppOp, _request: &T) -> Result<(), ApiError> {
         Ok(())
     }
 
