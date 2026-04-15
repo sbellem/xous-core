@@ -292,7 +292,7 @@
                 echo "  • nix build .#dabao       (dabao-helloworld)"
                 echo "  • nix build .#baremetal   (bao1x-baremetal-dabao)"
                 echo "  • nix build .#boot1       (bao1x-boot1 + bao1x-alt-boot1)"
-                echo "  • nix build .#bootloader  (bao1x-boot0 bao1x-boot1 + bao1x-alt-boot1)""
+                echo "  • nix build .#bootloader  (bao1x-boot0 bao1x-boot1 + bao1x-alt-boot1)"
                 echo ""
                 echo "For formatting checks, use: nix develop .#nightly"
                 echo "──────────────────────────────────────────────────────────────"
