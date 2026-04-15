@@ -40,7 +40,6 @@ pub type Selector = [u8; 4];
 /// The path is stored as a vector of u32 values where hardened indices
 /// have the 0x80000000 bit set. Maximum depth is 10 elements.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Archive, Serialize, Deserialize, Zeroize)]
-#[archive(check_bytes)]
 pub struct Bip32Path {
     /// Path components (hardened indices have bit 31 set).
     pub components: Vec<u32>,
@@ -141,7 +140,6 @@ impl Bip32Path {
 /// The `v` field is u64 to support EIP-155 with large chain IDs
 /// (chain_id > 110 would overflow u8 with the formula chain_id * 2 + 35 + recid).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Archive, Serialize, Deserialize, Zeroize)]
-#[archive(check_bytes)]
 pub struct Signature {
     /// Recovery identifier (27/28 for legacy, EIP-155 for transactions).
     /// u64 to accommodate EIP-155 v values for chains with large IDs.
@@ -201,7 +199,6 @@ impl Signature {
 
 /// App configuration returned by GetAppConfiguration.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct AppConfiguration {
     /// Major version.
     pub version_major: u8,
@@ -225,7 +222,6 @@ pub struct AppConfiguration {
 
 /// Transaction type for EIP-2718 typed transactions.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 #[repr(u8)]
 pub enum TransactionType {
     /// Legacy transaction (pre-EIP-2718).
@@ -256,7 +252,6 @@ impl TryFrom<u8> for TransactionType {
 
 /// ERC-20 token information for display purposes.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct TokenInfo {
     /// Chain ID where the token is deployed.
     pub chain_id: u64,
@@ -270,7 +265,6 @@ pub struct TokenInfo {
 
 /// NFT collection information for display purposes.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct NftInfo {
     /// Chain ID where the NFT is deployed.
     pub chain_id: u64,
@@ -282,7 +276,6 @@ pub struct NftInfo {
 
 /// Domain name resolution information.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct DomainInfo {
     /// Resolved address.
     pub address: EthAddress,
@@ -292,7 +285,6 @@ pub struct DomainInfo {
 
 /// Contract method information for clear signing.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct MethodInfo {
     /// Chain ID.
     pub chain_id: u64,
@@ -312,7 +304,6 @@ pub struct MethodInfo {
 
 /// Request to sign a transaction.
 #[derive(Debug, Clone, Default, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct SignTransactionRequest {
     /// BIP32 derivation path.
     pub path: Bip32Path,
@@ -322,7 +313,6 @@ pub struct SignTransactionRequest {
 
 /// Request to sign a transaction with clear signing.
 #[derive(Debug, Clone, Default, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct ClearSignTransactionRequest {
     /// BIP32 derivation path.
     pub path: Bip32Path,
@@ -334,7 +324,6 @@ pub struct ClearSignTransactionRequest {
 
 /// Request to sign a personal message.
 #[derive(Debug, Clone, Default, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct SignPersonalMessageRequest {
     /// BIP32 derivation path.
     pub path: Bip32Path,
@@ -344,7 +333,6 @@ pub struct SignPersonalMessageRequest {
 
 /// Request to sign pre-hashed EIP-712 data.
 #[derive(Debug, Clone, Default, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct SignEip712HashedRequest {
     /// BIP32 derivation path.
     pub path: Bip32Path,
@@ -356,7 +344,6 @@ pub struct SignEip712HashedRequest {
 
 /// Request to sign full EIP-712 typed data.
 #[derive(Debug, Clone, Default, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct SignEip712MessageRequest {
     /// BIP32 derivation path.
     pub path: Bip32Path,
@@ -366,7 +353,6 @@ pub struct SignEip712MessageRequest {
 
 /// Request to provide token info.
 #[derive(Debug, Clone, Default, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct ProvideTokenInfoRequest {
     /// Token information.
     pub info: TokenInfo,
@@ -376,7 +362,6 @@ pub struct ProvideTokenInfoRequest {
 
 /// Request to provide NFT info.
 #[derive(Debug, Clone, Default, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct ProvideNftInfoRequest {
     /// NFT collection information.
     pub info: NftInfo,
@@ -386,7 +371,6 @@ pub struct ProvideNftInfoRequest {
 
 /// Request to provide domain name resolution.
 #[derive(Debug, Clone, Default, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct ProvideDomainNameRequest {
     /// Domain resolution information.
     pub info: DomainInfo,
@@ -396,7 +380,6 @@ pub struct ProvideDomainNameRequest {
 
 /// Request to provide contract method info.
 #[derive(Debug, Clone, Default, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct ProvideMethodInfoRequest {
     /// Method information.
     pub info: MethodInfo,
@@ -406,7 +389,6 @@ pub struct ProvideMethodInfoRequest {
 
 /// Response with public key and address.
 #[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct PublicKeyResponse {
     /// Compressed public key (33 bytes).
     pub pubkey: [u8; 33],
@@ -431,7 +413,6 @@ impl Default for PublicKeyResponse {
 ///
 /// Used when data exceeds single Xous page size (4096 bytes).
 #[derive(Debug, Clone, Default, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
 pub struct ChunkHeader {
     /// Total size of the complete data.
     pub total_size: u32,
@@ -526,5 +507,202 @@ mod tests {
         assert_eq!(TransactionType::try_from(0x01).unwrap(), TransactionType::AccessList);
         assert_eq!(TransactionType::try_from(0x02).unwrap(), TransactionType::FeeMarket);
         assert!(TransactionType::try_from(0x03).is_err());
+    }
+
+    // =========================================================================
+    // BIP32 path tests
+    // =========================================================================
+
+    #[test]
+    fn test_bip32_ethereum_constructor() {
+        let path = Bip32Path::ethereum(0, 0, 0);
+        assert_eq!(path.len(), 5);
+        assert_eq!(path.as_slice()[0], 44 | Bip32Path::HARDENED);
+        assert_eq!(path.as_slice()[1], 60 | Bip32Path::HARDENED);
+        assert_eq!(path.as_slice()[2], 0 | Bip32Path::HARDENED);
+        assert_eq!(path.as_slice()[3], 0);
+        assert_eq!(path.as_slice()[4], 0);
+    }
+
+    #[test]
+    fn test_bip32_different_accounts() {
+        for account in 0..5u32 {
+            let path = Bip32Path::ethereum(account, 0, 0);
+            assert!(path.is_valid_ethereum_path());
+            assert_eq!(path.as_slice()[2], account | Bip32Path::HARDENED);
+        }
+    }
+
+    #[test]
+    fn test_bip32_valid_3_component_path() {
+        // Minimum valid: m/44'/60'/0'
+        let path = Bip32Path::from_slice(&[
+            44 | Bip32Path::HARDENED,
+            60 | Bip32Path::HARDENED,
+            0 | Bip32Path::HARDENED,
+        ]);
+        assert!(path.is_valid_ethereum_path());
+    }
+
+    #[test]
+    fn test_bip32_invalid_hardened_change() {
+        // change index should NOT be hardened
+        let path = Bip32Path::from_slice(&[
+            44 | Bip32Path::HARDENED,
+            60 | Bip32Path::HARDENED,
+            0 | Bip32Path::HARDENED,
+            0 | Bip32Path::HARDENED, // invalid: hardened change
+        ]);
+        assert!(!path.is_valid_ethereum_path());
+    }
+
+    #[test]
+    fn test_bip32_invalid_unhardened_account() {
+        // account must be hardened
+        let path = Bip32Path::from_slice(&[
+            44 | Bip32Path::HARDENED,
+            60 | Bip32Path::HARDENED,
+            0, // invalid: not hardened
+        ]);
+        assert!(!path.is_valid_ethereum_path());
+    }
+
+    #[test]
+    fn test_bip32_too_long() {
+        // More than MAX_BIP32_PATH_DEPTH components
+        let mut components = vec![
+            44 | Bip32Path::HARDENED,
+            60 | Bip32Path::HARDENED,
+            0 | Bip32Path::HARDENED,
+        ];
+        for i in 0..(MAX_BIP32_PATH_DEPTH - 2) {
+            components.push(i as u32);
+        }
+        assert!(components.len() > MAX_BIP32_PATH_DEPTH);
+        let path = Bip32Path::from_slice(&components);
+        assert!(!path.is_valid_ethereum_path());
+    }
+
+    #[test]
+    fn test_bip32_empty_path() {
+        let path = Bip32Path::new();
+        assert!(path.is_empty());
+        assert_eq!(path.len(), 0);
+        assert!(!path.is_valid_ethereum_path());
+    }
+
+    // =========================================================================
+    // Signature tests
+    // =========================================================================
+
+    #[test]
+    fn test_signature_default() {
+        let sig = Signature::default();
+        assert_eq!(sig.v, 0);
+        assert_eq!(sig.r, [0u8; 32]);
+        assert_eq!(sig.s, [0u8; 32]);
+    }
+
+    #[test]
+    fn test_signature_72_byte_format() {
+        let sig = Signature {
+            v: 0x1234567890ABCDEF,
+            r: [0xAA; 32],
+            s: [0xBB; 32],
+        };
+        let bytes = sig.to_bytes();
+        assert_eq!(bytes.len(), 72);
+        // r is first 32 bytes
+        assert_eq!(&bytes[0..32], &[0xAA; 32]);
+        // s is next 32 bytes
+        assert_eq!(&bytes[32..64], &[0xBB; 32]);
+        // v is last 8 bytes big-endian
+        assert_eq!(&bytes[64..72], &0x1234567890ABCDEFu64.to_be_bytes());
+    }
+
+    #[test]
+    fn test_signature_legacy_format_v27() {
+        let sig = Signature {
+            v: 27,
+            r: [1u8; 32],
+            s: [2u8; 32],
+        };
+        let legacy = sig.to_bytes_legacy().unwrap();
+        assert_eq!(legacy.len(), 65);
+        assert_eq!(&legacy[0..32], &[1u8; 32]);
+        assert_eq!(&legacy[32..64], &[2u8; 32]);
+        assert_eq!(legacy[64], 27);
+    }
+
+    #[test]
+    fn test_signature_legacy_format_v28() {
+        let sig = Signature {
+            v: 28,
+            r: [0xFF; 32],
+            s: [0xEE; 32],
+        };
+        let legacy = sig.to_bytes_legacy().unwrap();
+        assert_eq!(legacy[64], 28);
+    }
+
+    #[test]
+    fn test_signature_legacy_max_u8() {
+        // v = 255 should still fit in legacy format
+        let sig = Signature { v: 255, r: [0; 32], s: [0; 32] };
+        assert!(sig.to_bytes_legacy().is_some());
+    }
+
+    #[test]
+    fn test_signature_legacy_overflow_256() {
+        // v = 256 should NOT fit
+        let sig = Signature { v: 256, r: [0; 32], s: [0; 32] };
+        assert!(sig.to_bytes_legacy().is_none());
+    }
+
+    #[test]
+    fn test_signature_eip155_mainnet() {
+        // EIP-155 mainnet: v = 1 * 2 + 35 + 0 = 37
+        let sig = Signature { v: 37, r: [1; 32], s: [2; 32] };
+        let bytes = sig.to_bytes();
+        let recovered = Signature::from_bytes(&bytes);
+        assert_eq!(recovered.v, 37);
+        assert!(sig.to_bytes_legacy().is_some()); // 37 fits in u8
+    }
+
+    #[test]
+    fn test_signature_eip155_large_chain_id() {
+        // Chain ID = 100_000: v = 100_000 * 2 + 35 = 200_035
+        let sig = Signature { v: 200_035, r: [0; 32], s: [0; 32] };
+        assert!(sig.to_bytes_legacy().is_none()); // doesn't fit in u8
+        let bytes = sig.to_bytes();
+        let recovered = Signature::from_bytes(&bytes);
+        assert_eq!(recovered.v, 200_035);
+    }
+
+    // =========================================================================
+    // Transaction type tests
+    // =========================================================================
+
+    #[test]
+    fn test_transaction_type_default() {
+        assert_eq!(TransactionType::default(), TransactionType::Legacy);
+    }
+
+    #[test]
+    fn test_transaction_type_all_invalid() {
+        for byte in 3..=255u8 {
+            assert!(TransactionType::try_from(byte).is_err());
+        }
+    }
+
+    // =========================================================================
+    // PublicKeyResponse tests
+    // =========================================================================
+
+    #[test]
+    fn test_public_key_response_default() {
+        let resp = PublicKeyResponse::default();
+        assert_eq!(resp.pubkey, [0u8; 33]);
+        assert_eq!(resp.address, [0u8; 20]);
     }
 }

@@ -125,7 +125,7 @@ members = [
   "bao1x-boot/sha2-bao1x",
   "apps-dabao/helloworld",
   "apps-dabao/dabao-console",
-  "services/ethapp",
+  # "services/ethapp",  # temporarily excluded - k256/bip32 not yet vendored
   "libs/ethapp-api",
   "libs/ethapp-common",
   "services/swaptest1",

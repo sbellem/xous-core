@@ -15,6 +15,7 @@ extern crate alloc;
 
 pub mod error;
 pub mod opcodes;
+pub mod rlp;
 pub mod types;
 
 pub use error::EthAppError;

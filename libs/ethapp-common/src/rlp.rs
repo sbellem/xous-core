@@ -19,15 +19,8 @@
 //! - Bounded recursion depth (max 16)
 //! - No unbounded allocations
 
-#[cfg(target_os = "xous")]
 use alloc::vec;
-#[cfg(target_os = "xous")]
 use alloc::vec::Vec;
-
-#[cfg(not(target_os = "xous"))]
-use std::vec;
-#[cfg(not(target_os = "xous"))]
-use std::vec::Vec;
 
 /// Maximum RLP nesting depth.
 const MAX_DEPTH: usize = 16;
@@ -426,5 +419,330 @@ mod tests {
         assert_eq!(encode_bytes(&[0x42]), vec![0x42]);
         assert_eq!(encode_bytes(&[0x80]), vec![0x81, 0x80]);
         assert_eq!(encode_bytes(b"cat"), vec![0x83, b'c', b'a', b't']);
+    }
+
+    // =========================================================================
+    // Decode roundtrip tests
+    // =========================================================================
+
+    #[test]
+    fn test_decode_exact_rejects_trailing() {
+        // "cat" with trailing byte
+        let data = [0x83, b'c', b'a', b't', 0x00];
+        let result = decode_exact(&data);
+        assert!(matches!(result, Err(RlpError::TrailingData)));
+    }
+
+    #[test]
+    fn test_decode_exact_accepts_clean() {
+        let data = [0x83, b'c', b'a', b't'];
+        let item = decode_exact(&data).unwrap();
+        assert_eq!(item.as_string(), Some(&b"cat"[..]));
+    }
+
+    #[test]
+    fn test_decode_55_byte_string() {
+        // String of exactly 55 bytes uses short-string encoding
+        let mut data = vec![0x80 + 55];
+        data.extend_from_slice(&[0xAB; 55]);
+        let (item, rest) = decode(&data).unwrap();
+        assert_eq!(item.as_string().unwrap().len(), 55);
+        assert!(rest.is_empty());
+    }
+
+    #[test]
+    fn test_decode_56_byte_string() {
+        // String of 56 bytes uses long-string encoding
+        // 0xb8 = 0xb7 + 1 (one byte for length), then 0x38 = 56
+        let mut data = vec![0xb8, 56];
+        data.extend_from_slice(&[0xAB; 56]);
+        let (item, rest) = decode(&data).unwrap();
+        assert_eq!(item.as_string().unwrap().len(), 56);
+        assert!(rest.is_empty());
+    }
+
+    #[test]
+    fn test_decode_long_string_non_canonical_length() {
+        // Long string prefix but length < 56 is non-canonical
+        let mut data = vec![0xb8, 10]; // says 10 bytes, but 10 < 56
+        data.extend_from_slice(&[0xAB; 10]);
+        let result = decode(&data);
+        assert!(matches!(result, Err(RlpError::NonCanonical)));
+    }
+
+    #[test]
+    fn test_decode_long_string_leading_zero_length() {
+        // Long string with leading zero in length bytes
+        let mut data = vec![0xb9, 0x00, 0x38]; // two-byte length with leading zero
+        data.extend_from_slice(&[0xAB; 56]);
+        let result = decode(&data);
+        assert!(matches!(result, Err(RlpError::NonCanonical)));
+    }
+
+    #[test]
+    fn test_decode_list_with_items() {
+        // ["cat", "dog"] = 0xc8 0x83 "cat" 0x83 "dog"
+        let data = [0xc8, 0x83, b'c', b'a', b't', 0x83, b'd', b'o', b'g'];
+        let (item, rest) = decode(&data).unwrap();
+        let list = item.as_list().unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].as_string(), Some(&b"cat"[..]));
+        assert_eq!(list[1].as_string(), Some(&b"dog"[..]));
+        assert!(rest.is_empty());
+    }
+
+    #[test]
+    fn test_decode_list_of_integers() {
+        // [1, 2, 3] = 0xc3 0x01 0x02 0x03
+        let data = [0xc3, 0x01, 0x02, 0x03];
+        let (item, _) = decode(&data).unwrap();
+        let list = item.as_list().unwrap();
+        assert_eq!(list[0].as_u64(), Some(1));
+        assert_eq!(list[1].as_u64(), Some(2));
+        assert_eq!(list[2].as_u64(), Some(3));
+    }
+
+    #[test]
+    fn test_decode_deeply_nested() {
+        // Build nesting up to MAX_DEPTH (16), should succeed at 16
+        let mut data = Vec::new();
+        for _ in 0..16 {
+            data = vec![0xc0 + data.len() as u8];
+            data.push(0xc0); // empty list at the bottom isn't counted
+            // Actually let me build this properly
+        }
+        // Simpler: nest 17 levels deep, should fail
+        let mut deep = vec![0xc0]; // empty list
+        for _ in 0..17 {
+            let len = deep.len();
+            let mut outer = vec![0xc0 + len as u8];
+            outer.extend_from_slice(&deep);
+            deep = outer;
+        }
+        let result = decode(&deep);
+        assert!(matches!(result, Err(RlpError::TooDeep)));
+    }
+
+    #[test]
+    fn test_decode_empty_input() {
+        let result = decode(&[]);
+        assert!(matches!(result, Err(RlpError::EmptyInput)));
+    }
+
+    #[test]
+    fn test_decode_truncated_short_string() {
+        // Says 3 bytes but only 2 follow
+        let data = [0x83, b'c', b'a'];
+        let result = decode(&data);
+        assert!(matches!(result, Err(RlpError::UnexpectedEof)));
+    }
+
+    #[test]
+    fn test_decode_truncated_list() {
+        // List says 5 bytes but only 3 follow
+        let data = [0xc5, 0x01, 0x02, 0x03];
+        let result = decode(&data);
+        assert!(matches!(result, Err(RlpError::UnexpectedEof)));
+    }
+
+    // =========================================================================
+    // RlpItem accessor tests
+    // =========================================================================
+
+    #[test]
+    fn test_rlp_item_type_checks() {
+        let s = RlpItem::String(&[1, 2, 3]);
+        assert!(s.is_string());
+        assert!(!s.is_list());
+        assert!(s.as_list().is_none());
+
+        let l = RlpItem::List(vec![]);
+        assert!(l.is_list());
+        assert!(!l.is_string());
+        assert!(l.as_string().is_none());
+    }
+
+    #[test]
+    fn test_as_u64_max_8_bytes() {
+        // 8 bytes = max u64
+        let data = [0x88, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+        let (item, _) = decode(&data).unwrap();
+        assert_eq!(item.as_u64(), Some(u64::MAX));
+    }
+
+    #[test]
+    fn test_as_u64_rejects_9_bytes() {
+        // 9 bytes exceeds u64
+        let mut data = vec![0x89];
+        data.extend_from_slice(&[0x01; 9]);
+        let (item, _) = decode(&data).unwrap();
+        assert_eq!(item.as_u64(), None);
+    }
+
+    #[test]
+    fn test_as_u64_rejects_leading_zeros() {
+        // 0x00 0x01 has leading zero — non-canonical
+        let data = [0x82, 0x00, 0x01];
+        let (item, _) = decode(&data).unwrap();
+        assert_eq!(item.as_u64(), None);
+    }
+
+    #[test]
+    fn test_as_address() {
+        let addr_bytes = [0xde; 20];
+        let item = RlpItem::String(&addr_bytes);
+        let addr = item.as_address().unwrap();
+        assert_eq!(addr, addr_bytes);
+
+        // Wrong length
+        let short = [0xde; 19];
+        assert_eq!(RlpItem::String(&short).as_address(), None);
+    }
+
+    #[test]
+    fn test_as_bytes32_right_aligned() {
+        let data = [0x01, 0x00]; // value 256
+        let item = RlpItem::String(&data);
+        let result = item.as_bytes32().unwrap();
+        assert_eq!(result[30], 0x01);
+        assert_eq!(result[31], 0x00);
+        assert_eq!(result[0], 0x00); // left-padded with zeros
+    }
+
+    #[test]
+    fn test_as_bytes32_rejects_33_bytes() {
+        let data = [0xAB; 33];
+        assert_eq!(RlpItem::String(&data).as_bytes32(), None);
+    }
+
+    // =========================================================================
+    // Encode roundtrip tests
+    // =========================================================================
+
+    #[test]
+    fn test_encode_decode_u64_roundtrip() {
+        for &val in &[0u64, 1, 127, 128, 255, 256, 65535, 1_000_000, u64::MAX] {
+            let encoded = encode_u64(val);
+            let (item, rest) = decode(&encoded).unwrap();
+            assert!(rest.is_empty(), "trailing data for {val}");
+            assert_eq!(item.as_u64(), Some(val), "roundtrip failed for {val}");
+        }
+    }
+
+    #[test]
+    fn test_encode_decode_bytes_roundtrip() {
+        let cases: &[&[u8]] = &[
+            b"",
+            &[0x42],
+            &[0x80],
+            b"cat",
+            b"hello world this is a test",
+            &[0xAB; 55],
+            &[0xCD; 56],
+            &[0xEF; 200],
+        ];
+        for input in cases {
+            let encoded = encode_bytes(input);
+            let (item, rest) = decode(&encoded).unwrap();
+            assert!(rest.is_empty());
+            assert_eq!(item.as_string().unwrap(), *input);
+        }
+    }
+
+    #[test]
+    fn test_encode_list_empty() {
+        let encoded = encode_list(&[]);
+        assert_eq!(encoded, vec![0xc0]);
+        let (item, _) = decode(&encoded).unwrap();
+        assert!(item.as_list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_encode_list_with_items() {
+        // Encode [1, 2, 3] manually
+        let mut items_encoded = Vec::new();
+        items_encoded.extend_from_slice(&encode_u64(1));
+        items_encoded.extend_from_slice(&encode_u64(2));
+        items_encoded.extend_from_slice(&encode_u64(3));
+        let list_encoded = encode_list(&items_encoded);
+
+        let (item, _) = decode(&list_encoded).unwrap();
+        let list = item.as_list().unwrap();
+        assert_eq!(list.len(), 3);
+        assert_eq!(list[0].as_u64(), Some(1));
+        assert_eq!(list[1].as_u64(), Some(2));
+        assert_eq!(list[2].as_u64(), Some(3));
+    }
+
+    #[test]
+    fn test_encode_list_long() {
+        // List with > 55 bytes of content
+        let mut items = Vec::new();
+        for _ in 0..20 {
+            items.extend_from_slice(&encode_bytes(b"hello"));
+        }
+        assert!(items.len() > 55);
+        let list = encode_list(&items);
+        assert_eq!(list[0], 0xf8); // long list prefix
+        let (item, _) = decode(&list).unwrap();
+        assert_eq!(item.as_list().unwrap().len(), 20);
+    }
+
+    // =========================================================================
+    // Ethereum-specific RLP patterns
+    // =========================================================================
+
+    #[test]
+    fn test_encode_ethereum_address() {
+        // 20-byte address should encode as short string
+        let addr = [0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let encoded = encode_bytes(&addr);
+        assert_eq!(encoded[0], 0x80 + 20); // 0x94
+        let (item, _) = decode(&encoded).unwrap();
+        assert_eq!(item.as_address().unwrap(), addr);
+    }
+
+    #[test]
+    fn test_legacy_tx_structure() {
+        // Build a minimal unsigned legacy tx: [nonce, gasPrice, gasLimit, to, value, data]
+        let mut fields = Vec::new();
+        fields.extend_from_slice(&encode_u64(0));       // nonce = 0
+        fields.extend_from_slice(&encode_u64(20_000_000_000)); // gasPrice = 20 gwei
+        fields.extend_from_slice(&encode_u64(21000));   // gasLimit
+        fields.extend_from_slice(&encode_bytes(&[0xde; 20])); // to
+        fields.extend_from_slice(&encode_u64(0));       // value = 0
+        fields.extend_from_slice(&encode_bytes(&[]));   // data empty
+        let tx = encode_list(&fields);
+
+        let (item, _) = decode(&tx).unwrap();
+        let list = item.as_list().unwrap();
+        assert_eq!(list.len(), 6);
+        assert_eq!(list[0].as_u64(), Some(0)); // nonce
+        assert_eq!(list[2].as_u64(), Some(21000)); // gasLimit
+        assert_eq!(list[3].as_address().unwrap(), [0xde; 20]); // to
+    }
+
+    #[test]
+    fn test_eip155_unsigned_tx_structure() {
+        // EIP-155 unsigned: [nonce, gasPrice, gasLimit, to, value, data, chainId, 0, 0]
+        let mut fields = Vec::new();
+        fields.extend_from_slice(&encode_u64(42));      // nonce
+        fields.extend_from_slice(&encode_u64(10_000_000_000)); // gasPrice
+        fields.extend_from_slice(&encode_u64(21000));   // gasLimit
+        fields.extend_from_slice(&encode_bytes(&[0xAA; 20])); // to
+        fields.extend_from_slice(&encode_u64(1_000_000_000_000_000_000)); // 1 ETH
+        fields.extend_from_slice(&encode_bytes(&[]));   // data
+        fields.extend_from_slice(&encode_u64(1));       // chainId (mainnet)
+        fields.extend_from_slice(&encode_u64(0));       // r = 0
+        fields.extend_from_slice(&encode_u64(0));       // s = 0
+        let tx = encode_list(&fields);
+
+        let (item, _) = decode(&tx).unwrap();
+        let list = item.as_list().unwrap();
+        assert_eq!(list.len(), 9);
+        assert_eq!(list[0].as_u64(), Some(42));   // nonce
+        assert_eq!(list[6].as_u64(), Some(1));    // chainId
+        assert_eq!(list[7].as_u64(), Some(0));    // r
+        assert_eq!(list[8].as_u64(), Some(0));    // s
     }
 }

@@ -21,7 +21,7 @@ use std::vec::Vec;
 
 use ethapp_common::{EthAddress, Hash256, TransactionType, MAX_TX_SIZE};
 
-use super::rlp::{self, RlpError, RlpItem};
+use ethapp_common::rlp::{self, RlpError, RlpItem};
 use crate::crypto::keccak256;
 
 /// Transaction parsing errors.

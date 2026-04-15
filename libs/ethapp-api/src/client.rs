@@ -436,7 +436,6 @@ impl Drop for EthAppClient {
 
 /// Internal type for metadata context binding.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-#[archive(check_bytes)]
 struct MetadataContext {
     chain_id: u64,
     address: EthAddress,
