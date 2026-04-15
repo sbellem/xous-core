@@ -11,19 +11,8 @@
 //! All signing operations MUST show a confirmation screen.
 //! The user MUST see what they are signing.
 
-#[cfg(target_os = "xous")]
-use alloc::string::String;
-#[cfg(target_os = "xous")]
-use alloc::vec::Vec;
-#[cfg(target_os = "xous")]
-use alloc::format;
-
-#[cfg(not(target_os = "xous"))]
 use std::string::String;
-#[cfg(not(target_os = "xous"))]
 use std::vec::Vec;
-#[cfg(not(target_os = "xous"))]
-use std::format;
 
 use ethapp_common::{EthAppError, Hash256, TransactionType};
 use crate::crypto::format_address_checksummed;
@@ -104,7 +93,7 @@ pub fn display_transaction<P: Platform>(
 
         let field_refs: Vec<(&str, &str)> = fields
             .iter()
-            .map(|(k, v)| (*k, v.as_str()))
+            .map(|(k, v): &(&str, String)| (*k, v.as_str()))
             .collect();
 
         platform.show_transaction_review(&field_refs, "Sign transaction")

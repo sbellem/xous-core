@@ -27,11 +27,6 @@
 //! - xous-core services/trng/src/lib.rs: Trng::new(), fill_bytes(), CryptoRng impl
 //! - xous-core services/pddb/src/lib.rs: Pddb::new(), get(), key read/write
 
-#[cfg(target_os = "xous")]
-use alloc::string::String;
-#[cfg(target_os = "xous")]
-use alloc::vec::Vec;
-
 use ethapp_common::EthAppError;
 
 /// PDDB dictionary name for all ethapp keys.
@@ -87,71 +82,48 @@ pub trait Platform {
 // Xous Platform Implementation
 // =============================================================================
 
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub struct XousPlatform {
-    /// Connection to the Xous TRNG service.
-    ///
-    /// The `trng::Trng` struct owns a CID to the TRNG server and
-    /// implements `rand_core::RngCore + CryptoRng`. It uses hardware
-    /// entropy from the BAO1X2S4F TRNG block, whitened through a
-    /// ChaCha-based CSPRNG with online health monitoring.
-    ///
-    /// `None` until `init()` is called successfully.
+    /// Connection to the Xous TRNG service (native Xous only).
+    #[cfg(target_os = "xous")]
     trng: Option<trng::Trng>,
-    // TODO(baochip): Add PDDB connection when pddb crate is available
-    // in the Baochip Xous build. The Pddb struct owns a CID to the
-    // PDDB server and provides encrypted key-value storage.
-    //
-    // pddb: Option<pddb::Pddb>,
-    //
-    // TODO(baochip): Add GAM connection for secure UI
-    // gam: Option<gam::Gam>,
+    /// Hosted mode doesn't have the trng crate — uses getrandom instead.
+    #[cfg(not(target_os = "xous"))]
+    _initialized: bool,
 }
 
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 impl XousPlatform {
-    /// Create a new platform instance.
-    ///
-    /// Services are not connected until `init()` is called. This two-phase
-    /// initialization allows the caller to handle connection failures
-    /// gracefully rather than panicking in the constructor.
     pub fn new() -> Self {
         Self {
+            #[cfg(target_os = "xous")]
             trng: None,
+            #[cfg(not(target_os = "xous"))]
+            _initialized: false,
         }
     }
 
-    /// Initialize connections to Xous services.
-    ///
-    /// Connects to the TRNG service (and eventually PDDB, GAM). Must be
-    /// called before any platform operations. Fails closed: if the TRNG
-    /// service is unreachable, all signing operations will fail.
     pub fn init(&mut self) -> Result<(), EthAppError> {
-        let xns = xous_names::XousNames::new()
-            .map_err(|_| EthAppError::ServiceConnectionFailed)?;
+        #[cfg(target_os = "xous")]
+        {
+            let xns = xous_names::XousNames::new()
+                .map_err(|_| EthAppError::ServiceConnectionFailed)?;
+            let trng = trng::Trng::new(&xns)
+                .map_err(|_| EthAppError::ServiceConnectionFailed)?;
+            self.trng = Some(trng);
+        }
 
-        // Connect to the hardware TRNG service.
-        // trng::Trng::new() calls xns.request_connection_blocking(SERVER_NAME_TRNG)
-        // internally. On failure, we propagate ServiceConnectionFailed so that
-        // the caller knows the platform is not usable for cryptographic operations.
-        let trng = trng::Trng::new(&xns)
-            .map_err(|_| EthAppError::ServiceConnectionFailed)?;
-        self.trng = Some(trng);
+        #[cfg(not(target_os = "xous"))]
+        {
+            self._initialized = true;
+        }
 
-        // TODO(baochip): Connect to PDDB service
-        // let pddb = pddb::Pddb::new();
-        // pddb.is_mounted_blocking(); // wait for PDDB to be ready
-        // self.pddb = Some(pddb);
-
-        // TODO(baochip): Connect to GAM service for secure display
-        // self.gam = Some(gam::Gam::new(&xns).map_err(|_| EthAppError::ServiceConnectionFailed)?);
-
-        log::info!("Platform: Initialized Xous services (TRNG connected)");
+        log::info!("Platform: Initialized");
         Ok(())
     }
 }
 
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 impl Platform for XousPlatform {
     fn rng_fill_bytes(&self, buf: &mut [u8]) -> Result<(), EthAppError> {
         // Dev-mode: deterministic fake RNG for reproducible testing.
@@ -173,45 +145,22 @@ impl Platform for XousPlatform {
 
         #[cfg(not(feature = "dev-mode"))]
         {
-            use rand_core::RngCore;
+            #[cfg(target_os = "xous")]
+            {
+                use rand_core::RngCore;
+                let trng = self.trng.as_ref()
+                    .ok_or(EthAppError::ServiceConnectionFailed)?;
+                // SAFETY: Single-threaded Xous server; Trng IPC is stateless.
+                let trng_ptr = trng as *const trng::Trng as *mut trng::Trng;
+                unsafe { (*trng_ptr).fill_bytes(buf); }
+                Ok(())
+            }
 
-            // Access the TRNG service. Fail closed if not initialized.
-            let trng = self.trng.as_ref()
-                .ok_or(EthAppError::ServiceConnectionFailed)?;
-
-            // trng::Trng implements RngCore + CryptoRng.
-            // fill_bytes() dispatches to the hardware TRNG:
-            //   - For buffers < 64 bytes: uses get_u64() scalar calls
-            //   - For larger buffers: uses fill_buf() with IPC memory messages
-            //
-            // The TRNG service provides CSPRNG-quality output:
-            //   1. Hardware entropy from ring oscillator + avalanche noise
-            //   2. ChaCha whitener in the always-on domain
-            //   3. NIST SP 800-90B online health monitoring
-            //
-            // Note: fill_bytes() takes &mut self on the RngCore trait, but the
-            // underlying Xous IPC is stateless (each call is an independent
-            // message to the TRNG server). We use a shared reference and
-            // reborrow mutably here because the Trng struct's mutable state
-            // is only the connection ID (which doesn't change after init).
-            //
-            // SAFETY: This requires interior mutability in the Trng struct.
-            // The upstream trng::Trng implementation uses message-passing
-            // which is inherently thread-safe in Xous. If the upstream API
-            // changes to require &mut self without interior mutability, this
-            // will need adjustment (e.g., wrapping in a Mutex or Cell).
-            //
-            // For now, we cast through a raw pointer. This is sound because:
-            // - The Xous message-passing IPC is stateless per-call
-            // - The CID field is read-only after initialization
-            // - No other thread accesses this Trng instance concurrently
-            //   (XousPlatform is not Send/Sync, single-threaded server loop)
-            let trng_ptr = trng as *const trng::Trng as *mut trng::Trng;
-            // SAFETY: Single-threaded Xous server; no concurrent access.
-            // The Trng::fill_bytes only reads conn (CID) and sends IPC messages.
-            unsafe { (*trng_ptr).fill_bytes(buf); }
-
-            Ok(())
+            #[cfg(not(target_os = "xous"))]
+            {
+                // Hosted mode: use getrandom for OS entropy
+                getrandom::getrandom(buf).map_err(|_| EthAppError::CryptoError)
+            }
         }
     }
 
@@ -356,7 +305,7 @@ impl Platform for XousPlatform {
     }
 }
 
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 impl Default for XousPlatform {
     fn default() -> Self {
         Self::new()
@@ -367,21 +316,21 @@ impl Default for XousPlatform {
 // Mock Platform (for host testing)
 // =============================================================================
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 use std::collections::HashMap;
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 use std::sync::Mutex;
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 use std::vec::Vec;
 
 /// Mock platform for host-side testing.
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub struct MockPlatform {
     storage: Mutex<HashMap<String, Vec<u8>>>,
     auto_approve: bool,
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 impl MockPlatform {
     /// Create a new mock platform.
     pub fn new() -> Self {
@@ -402,7 +351,7 @@ impl MockPlatform {
     }
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 impl Platform for MockPlatform {
     fn rng_fill_bytes(&self, buf: &mut [u8]) -> Result<(), EthAppError> {
         // Use getrandom for host testing
@@ -449,7 +398,7 @@ impl Platform for MockPlatform {
     }
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 impl Default for MockPlatform {
     fn default() -> Self {
         Self::new()
@@ -461,7 +410,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(not(target_os = "xous"))]
+    #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
     fn test_mock_platform_storage() {
         let platform = MockPlatform::new();
 
@@ -479,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(target_os = "xous"))]
+    #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
     fn test_mock_platform_rng() {
         let platform = MockPlatform::new();
         let mut buf1 = [0u8; 32];
@@ -495,7 +444,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(target_os = "xous"))]
+    #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
     fn test_mock_platform_rng_fills_full_buffer() {
         let platform = MockPlatform::new();
 
@@ -510,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(target_os = "xous"))]
+    #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
     fn test_pddb_constants() {
         // Verify PDDB dictionary and key names are reasonable
         assert!(!PDDB_DICT.is_empty());

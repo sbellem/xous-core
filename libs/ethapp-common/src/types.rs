@@ -409,6 +409,20 @@ impl Default for PublicKeyResponse {
 // Chunked Transfer
 // =============================================================================
 
+/// Context binding for metadata lookups.
+///
+/// Sent by the client to associate a chain ID and contract address with
+/// a subsequent signing operation.
+#[derive(Debug, Clone, Copy, Default, Archive, Serialize, Deserialize)]
+pub struct MetadataContext {
+    /// Chain ID for the context.
+    pub chain_id: u64,
+    /// Contract address for the context.
+    pub address: EthAddress,
+}
+
+// =============================================================================
+
 /// Header for chunked data transfer.
 ///
 /// Used when data exceeds single Xous page size (4096 bytes).

@@ -12,14 +12,6 @@
 //! - Settings loaded from PDDB are validated on read
 //! - State is cleared on service restart
 
-#[cfg(target_os = "xous")]
-use alloc::collections::BTreeMap;
-#[cfg(target_os = "xous")]
-use alloc::string::String;
-#[cfg(target_os = "xous")]
-use alloc::vec::Vec;
-
-#[cfg(not(target_os = "xous"))]
 use std::collections::BTreeMap;
 
 use ethapp_common::{
@@ -27,9 +19,9 @@ use ethapp_common::{
     PROTOCOL_VERSION,
 };
 
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 use crate::platform::XousPlatform;
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 use crate::platform::MockPlatform;
 
 use crate::platform::Platform;
@@ -40,9 +32,9 @@ const MAX_CACHE_SIZE: usize = 64;
 /// Service state.
 pub struct ServiceState {
     /// Platform abstraction.
-    #[cfg(target_os = "xous")]
+    #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
     pub platform: XousPlatform,
-    #[cfg(not(target_os = "xous"))]
+    #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
     pub platform: MockPlatform,
 
     /// Application configuration.
@@ -83,9 +75,9 @@ impl ServiceState {
     /// Create a new service state.
     pub fn new() -> Self {
         Self {
-            #[cfg(target_os = "xous")]
+            #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
             platform: XousPlatform::new(),
-            #[cfg(not(target_os = "xous"))]
+            #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
             platform: MockPlatform::new(),
             config: AppConfiguration {
                 version_major: 0,

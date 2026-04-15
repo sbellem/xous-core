@@ -7,28 +7,19 @@
 //! - Performing the operation
 //! - Serializing and returning the response
 
-#[cfg(target_os = "xous")]
-use alloc::string::String;
-#[cfg(target_os = "xous")]
-use alloc::vec::Vec;
-
-#[cfg(not(target_os = "xous"))]
 use std::string::String;
-#[cfg(not(target_os = "xous"))]
-use std::vec::Vec;
 
 use ethapp_common::{
-    AppConfiguration, Bip32Path, EthAppError, Hash256, ProvideTokenInfoRequest,
+    Bip32Path, EthAppError, MetadataContext, ProvideTokenInfoRequest,
     PublicKeyResponse, Signature, SignEip712HashedRequest, SignEip712MessageRequest,
-    SignPersonalMessageRequest, SignTransactionRequest, TransactionType,
+    SignPersonalMessageRequest, SignTransactionRequest,
 };
-use rkyv::{Deserialize, Serialize};
 
 use crate::crypto::{
-    derive_private_key, format_address_checksummed, get_compressed_pubkey, keccak256,
+    derive_private_key, get_compressed_pubkey,
     public_key_to_address, sign_eth, sign_eip712, sign_personal_message, get_public_key,
 };
-use crate::parsing::{ParsedTransaction, TransactionParser};
+use crate::parsing::TransactionParser;
 use crate::platform::Platform;
 use crate::state::ServiceState;
 use crate::ui;
@@ -38,55 +29,40 @@ use crate::ui;
 // =============================================================================
 
 /// Returns a success scalar response.
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn return_success(msg: xous::MessageEnvelope) -> Result<(), EthAppError> {
     xous::return_scalar(msg.sender, 0)
         .map_err(|_| EthAppError::InternalError)
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub fn return_success(_msg: ()) -> Result<(), EthAppError> {
     Ok(())
 }
 
 /// Returns an error scalar response.
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn return_error(msg: xous::MessageEnvelope, error: EthAppError) -> Result<(), EthAppError> {
     xous::return_scalar(msg.sender, error.code() as usize)
         .map_err(|_| EthAppError::InternalError)
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub fn return_error(_msg: (), error: EthAppError) -> Result<(), EthAppError> {
     Err(error)
 }
 
-/// Safely extract a Buffer from a Xous memory message.
+/// Write an error code into the response buffer so the client can detect it.
 ///
-/// Encapsulates the single `unsafe` call to `Buffer::from_memory_message`,
-/// validating the message type first. This is the only place in the codebase
-/// where this unsafe operation occurs.
-///
-/// # Safety justification
-/// `Buffer::from_memory_message` is unsafe because it constructs a Buffer from
-/// a raw kernel-provided memory region. The safety is ensured by:
-/// - The Xous kernel guarantees valid memory mapping for Borrow/MutableBorrow messages
-/// - We validate the message type before calling the unsafe function
-/// - The Buffer lifetime is bounded by the message lifetime
-#[cfg(target_os = "xous")]
-fn extract_buffer(msg: &xous::MessageEnvelope) -> Result<xous_ipc::Buffer, EthAppError> {
-    use xous::Message;
-    use xous_ipc::Buffer;
-    match &msg.body {
-        Message::MutableBorrow(b) | Message::Borrow(b) => {
-            // SAFETY: The Xous kernel guarantees that Borrow/MutableBorrow messages
-            // contain valid memory regions mapped into our address space.
-            unsafe { Buffer::from_memory_message(b) }
-                .map_err(|_| EthAppError::InvalidData)
-        }
-        _ => Err(EthAppError::InvalidData),
-    }
+/// Encodes `error.code()` as a `u32` (4 bytes).  The client distinguishes
+/// this from normal responses by checking `buf.used() == 4`: valid responses
+/// are either 1 byte (u8 bool) or ≥ 20 bytes (addresses, signatures, etc.).
+/// Error codes are 0x00–0x1A, so a 4-byte response is unambiguously an error.
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+fn write_error_response(buffer: &mut xous_ipc::Buffer, error: EthAppError) {
+    let _ = buffer.replace(error.code() as u32);
 }
+
 
 /// Get the seed for key derivation.
 ///
@@ -162,30 +138,25 @@ fn get_seed() -> Result<crate::crypto::Seed, EthAppError> {
 // =============================================================================
 
 /// Handle GetAppConfiguration request.
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn handle_get_app_configuration(
     state: &mut ServiceState,
-    msg: xous::MessageEnvelope,
+    mut msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
     use xous_ipc::Buffer;
 
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
+
     let config = state.config.clone();
-
-    // Serialize response
-    let bytes = rkyv::to_bytes::<_, 256>(&config)
-        .map_err(|_| EthAppError::SerializationError)?;
-
-    // Return via memory message
-    let mut buffer = Buffer::into_buf(bytes.to_vec())
-        .map_err(|_| EthAppError::SerializationError)?;
-
-    buffer.replace(msg.body)
-        .map_err(|_| EthAppError::InternalError)?;
-
+    buffer.replace(config).map_err(|_| EthAppError::InternalError)?;
     Ok(())
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub fn handle_get_app_configuration(
     state: &mut ServiceState,
     _msg: (),
@@ -194,26 +165,26 @@ pub fn handle_get_app_configuration(
 }
 
 /// Handle GetChallenge request.
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn handle_get_challenge(
     state: &mut ServiceState,
-    msg: xous::MessageEnvelope,
+    mut msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
     use xous_ipc::Buffer;
 
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
+
     let mut challenge = [0u8; 32];
     state.platform.rng_fill_bytes(&mut challenge)?;
-
-    let mut buffer = Buffer::into_buf(challenge.to_vec())
-        .map_err(|_| EthAppError::SerializationError)?;
-
-    buffer.replace(msg.body)
-        .map_err(|_| EthAppError::InternalError)?;
-
+    buffer.replace(challenge).map_err(|_| EthAppError::InternalError)?;
     Ok(())
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub fn handle_get_challenge(
     state: &mut ServiceState,
     _msg: (),
@@ -228,37 +199,34 @@ pub fn handle_get_challenge(
 // =============================================================================
 
 /// Handle SignTransaction request.
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn handle_sign_transaction(
     state: &mut ServiceState,
-    msg: xous::MessageEnvelope,
+    mut msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
     use xous_ipc::Buffer;
 
-    // Extract request from memory message
-    let buffer = extract_buffer(&msg)?;
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
 
-    let request: SignTransactionRequest = buffer.to_original()
+    let request: SignTransactionRequest = buffer
+        .to_original()
         .map_err(|_| EthAppError::SerializationError)?;
 
-    // Process the signing request
-    let signature = process_sign_transaction(state, &request)?;
-
-    // Serialize and return signature
-    let bytes = rkyv::to_bytes::<_, 128>(&signature)
-        .map_err(|_| EthAppError::SerializationError)?;
-
-    let mut response = Buffer::into_buf(bytes.to_vec())
-        .map_err(|_| EthAppError::SerializationError)?;
-
-    response.replace(msg.body)
-        .map_err(|_| EthAppError::InternalError)?;
-
-    state.record_sign_success();
+    match process_sign_transaction(state, &request) {
+        Ok(signature) => {
+            buffer.replace(signature).map_err(|_| EthAppError::InternalError)?;
+            state.record_sign_success();
+        }
+        Err(e) => write_error_response(&mut buffer, e),
+    }
     Ok(())
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub fn handle_sign_transaction(
     state: &mut ServiceState,
     request: &SignTransactionRequest,
@@ -304,17 +272,17 @@ fn process_sign_transaction(
 }
 
 /// Handle ClearSignTransaction request.
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn handle_clear_sign_transaction(
     state: &mut ServiceState,
-    msg: xous::MessageEnvelope,
+    mut msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
     // For now, delegate to regular sign transaction
     // Full implementation would use cached metadata
     handle_sign_transaction(state, msg)
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub fn handle_clear_sign_transaction(
     state: &mut ServiceState,
     request: &SignTransactionRequest,
@@ -327,34 +295,34 @@ pub fn handle_clear_sign_transaction(
 // =============================================================================
 
 /// Handle SignPersonalMessage request.
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn handle_sign_personal_message(
     state: &mut ServiceState,
-    msg: xous::MessageEnvelope,
+    mut msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
     use xous_ipc::Buffer;
 
-    let buffer = extract_buffer(&msg)?;
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
 
-    let request: SignPersonalMessageRequest = buffer.to_original()
+    let request: SignPersonalMessageRequest = buffer
+        .to_original()
         .map_err(|_| EthAppError::SerializationError)?;
 
-    let signature = process_sign_personal_message(state, &request)?;
-
-    let bytes = rkyv::to_bytes::<_, 128>(&signature)
-        .map_err(|_| EthAppError::SerializationError)?;
-
-    let mut response = Buffer::into_buf(bytes.to_vec())
-        .map_err(|_| EthAppError::SerializationError)?;
-
-    response.replace(msg.body)
-        .map_err(|_| EthAppError::InternalError)?;
-
-    state.record_sign_success();
+    match process_sign_personal_message(state, &request) {
+        Ok(signature) => {
+            buffer.replace(signature).map_err(|_| EthAppError::InternalError)?;
+            state.record_sign_success();
+        }
+        Err(e) => write_error_response(&mut buffer, e),
+    }
     Ok(())
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub fn handle_sign_personal_message(
     state: &mut ServiceState,
     request: &SignPersonalMessageRequest,
@@ -399,39 +367,40 @@ fn process_sign_personal_message(
 }
 
 /// Handle SignEip712Hashed request.
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn handle_sign_eip712_hashed(
     state: &mut ServiceState,
-    msg: xous::MessageEnvelope,
+    mut msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
     use xous_ipc::Buffer;
 
-    // Check if blind signing is enabled
+    // Create buffer first so we can write an error code back to the client.
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
+
     if !state.config.blind_signing_enabled {
-        return Err(EthAppError::BlindSigningDisabled);
+        write_error_response(&mut buffer, EthAppError::BlindSigningDisabled);
+        return Ok(());
     }
 
-    let buffer = extract_buffer(&msg)?;
-
-    let request: SignEip712HashedRequest = buffer.to_original()
+    let request: SignEip712HashedRequest = buffer
+        .to_original()
         .map_err(|_| EthAppError::SerializationError)?;
 
-    let signature = process_sign_eip712_hashed(state, &request)?;
-
-    let bytes = rkyv::to_bytes::<_, 128>(&signature)
-        .map_err(|_| EthAppError::SerializationError)?;
-
-    let mut response = Buffer::into_buf(bytes.to_vec())
-        .map_err(|_| EthAppError::SerializationError)?;
-
-    response.replace(msg.body)
-        .map_err(|_| EthAppError::InternalError)?;
-
-    state.record_sign_success();
+    match process_sign_eip712_hashed(state, &request) {
+        Ok(signature) => {
+            buffer.replace(signature).map_err(|_| EthAppError::InternalError)?;
+            state.record_sign_success();
+        }
+        Err(e) => write_error_response(&mut buffer, e),
+    }
     Ok(())
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub fn handle_sign_eip712_hashed(
     state: &mut ServiceState,
     request: &SignEip712HashedRequest,
@@ -474,34 +443,34 @@ fn process_sign_eip712_hashed(
 }
 
 /// Handle SignEip712Message request.
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn handle_sign_eip712_message(
     state: &mut ServiceState,
-    msg: xous::MessageEnvelope,
+    mut msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
     use xous_ipc::Buffer;
 
-    let buffer = extract_buffer(&msg)?;
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
 
-    let request: SignEip712MessageRequest = buffer.to_original()
+    let request: SignEip712MessageRequest = buffer
+        .to_original()
         .map_err(|_| EthAppError::SerializationError)?;
 
-    let signature = process_sign_eip712_message(state, &request)?;
-
-    let bytes = rkyv::to_bytes::<_, 128>(&signature)
-        .map_err(|_| EthAppError::SerializationError)?;
-
-    let mut response = Buffer::into_buf(bytes.to_vec())
-        .map_err(|_| EthAppError::SerializationError)?;
-
-    response.replace(msg.body)
-        .map_err(|_| EthAppError::InternalError)?;
-
-    state.record_sign_success();
+    match process_sign_eip712_message(state, &request) {
+        Ok(signature) => {
+            buffer.replace(signature).map_err(|_| EthAppError::InternalError)?;
+            state.record_sign_success();
+        }
+        Err(e) => write_error_response(&mut buffer, e),
+    }
     Ok(())
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub fn handle_sign_eip712_message(
     state: &mut ServiceState,
     request: &SignEip712MessageRequest,
@@ -560,14 +529,21 @@ fn process_sign_eip712_message(
 // =============================================================================
 
 /// Handle ProvideErc20TokenInfo request.
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn handle_provide_erc20_token_info(
     state: &mut ServiceState,
-    msg: xous::MessageEnvelope,
+    mut msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
-    let buffer = extract_buffer(&msg)?;
+    use xous_ipc::Buffer;
 
-    let request: ProvideTokenInfoRequest = buffer.to_original()
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
+
+    let request: ProvideTokenInfoRequest = buffer
+        .to_original()
         .map_err(|_| EthAppError::SerializationError)?;
 
     // Validate basic constraints
@@ -607,11 +583,11 @@ pub fn handle_provide_erc20_token_info(
 
     state.cache_token_info(unverified_info);
 
-    xous::return_scalar(msg.sender, 1) // accepted = true (but unverified)
-        .map_err(|_| EthAppError::InternalError)
+    buffer.replace(1u8).map_err(|_| EthAppError::InternalError)?;
+    Ok(())
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub fn handle_provide_erc20_token_info(
     state: &mut ServiceState,
     request: &ProvideTokenInfoRequest,
@@ -638,110 +614,99 @@ pub fn handle_provide_erc20_token_info(
 // These validate the incoming message format but return UnsupportedOperation
 // since the actual metadata processing is not yet implemented.
 
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn handle_provide_nft_info(
     _state: &mut ServiceState,
-    msg: xous::MessageEnvelope,
+    mut msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
     use ethapp_common::ProvideNftInfoRequest;
+    use xous_ipc::Buffer;
 
-    // Validate that we received a well-formed memory message
-    let buffer = extract_buffer(&msg)?;
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
 
-    // Deserialize to validate format (discard result)
-    let _request: ProvideNftInfoRequest = buffer.to_original()
+    let _request: ProvideNftInfoRequest = buffer
+        .to_original()
         .map_err(|_| EthAppError::SerializationError)?;
 
     log::warn!("ethapp: handle_provide_nft_info called but not yet implemented");
-
-    // Return error code indicating not yet implemented
-    xous::return_scalar(msg.sender, EthAppError::UnsupportedOperation.code() as usize)
-        .map_err(|_| EthAppError::InternalError)
+    buffer.replace(0u8).map_err(|_| EthAppError::InternalError)?;
+    Ok(())
 }
 
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn handle_provide_domain_name(
     _state: &mut ServiceState,
-    msg: xous::MessageEnvelope,
+    mut msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
     use ethapp_common::ProvideDomainNameRequest;
+    use xous_ipc::Buffer;
 
-    // Validate that we received a well-formed memory message
-    let buffer = extract_buffer(&msg)?;
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
 
-    // Deserialize to validate format (discard result)
-    let _request: ProvideDomainNameRequest = buffer.to_original()
+    let _request: ProvideDomainNameRequest = buffer
+        .to_original()
         .map_err(|_| EthAppError::SerializationError)?;
 
     log::warn!("ethapp: handle_provide_domain_name called but not yet implemented");
-
-    // Return error code indicating not yet implemented
-    xous::return_scalar(msg.sender, EthAppError::UnsupportedOperation.code() as usize)
-        .map_err(|_| EthAppError::InternalError)
+    buffer.replace(0u8).map_err(|_| EthAppError::InternalError)?;
+    Ok(())
 }
 
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn handle_load_contract_method_info(
     _state: &mut ServiceState,
-    msg: xous::MessageEnvelope,
+    mut msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
     use ethapp_common::ProvideMethodInfoRequest;
+    use xous_ipc::Buffer;
 
-    // Validate that we received a well-formed memory message
-    let buffer = extract_buffer(&msg)?;
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
 
-    // Deserialize to validate format (discard result)
-    let _request: ProvideMethodInfoRequest = buffer.to_original()
+    let _request: ProvideMethodInfoRequest = buffer
+        .to_original()
         .map_err(|_| EthAppError::SerializationError)?;
 
     log::warn!("ethapp: handle_load_contract_method_info called but not yet implemented");
-
-    // Return error code indicating not yet implemented
-    xous::return_scalar(msg.sender, EthAppError::UnsupportedOperation.code() as usize)
-        .map_err(|_| EthAppError::InternalError)
+    buffer.replace(0u8).map_err(|_| EthAppError::InternalError)?;
+    Ok(())
 }
 
 /// Handle ByContractAddressAndChain request.
 ///
-/// Uses a memory message to receive chain_id (u64) + address (20 bytes).
-/// A scalar message cannot carry a full Ethereum address on RV32:
-/// 4 scalar args * 4 bytes (usize on RV32) = 16 bytes, but
-/// chain_id (8 bytes) + address (20 bytes) = 28 bytes total needed.
-#[cfg(target_os = "xous")]
+/// Receives a `MetadataContext` (chain_id + address) via memory message and
+/// stores it as the current context for subsequent signing operations.
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn handle_by_contract_address_and_chain(
     state: &mut ServiceState,
-    msg: xous::MessageEnvelope,
+    mut msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
-    // Use memory message to receive the full chain_id + address payload.
-    // Reject scalar messages -- they cannot carry a full 20-byte
-    // Ethereum address on RV32 (usize = 4, so 4 args = 16 bytes max).
-    let buffer = extract_buffer(&msg).map_err(|e| {
-        log::warn!(
-            "ethapp: handle_by_contract_address_and_chain requires a memory message, \
-             scalar messages truncate the 20-byte address on RV32"
-        );
-        e
-    })?;
+    use xous_ipc::Buffer;
 
-    let raw: &[u8] = buffer.as_flat::<u8, _>()
-        .map_err(|_| EthAppError::InvalidData)?;
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
 
-    // Expect exactly 28 bytes: chain_id (8 bytes BE) + address (20 bytes)
-    if raw.len() < 28 {
-        return Err(EthAppError::InvalidData);
-    }
+    let context: MetadataContext = buffer
+        .to_original()
+        .map_err(|_| EthAppError::SerializationError)?;
 
-    let mut chain_id_bytes = [0u8; 8];
-    chain_id_bytes.copy_from_slice(&raw[..8]);
-    let chain_id = u64::from_be_bytes(chain_id_bytes);
-
-    let mut address = [0u8; 20];
-    address.copy_from_slice(&raw[8..28]);
-
-    state.set_context(chain_id, address);
-
-    xous::return_scalar(msg.sender, 1)
-        .map_err(|_| EthAppError::InternalError)
+    state.set_context(context.chain_id, context.address);
+    buffer.replace(1u8).map_err(|_| EthAppError::InternalError)?;
+    Ok(())
 }
 
 // =============================================================================
@@ -749,33 +714,31 @@ pub fn handle_by_contract_address_and_chain(
 // =============================================================================
 
 /// Handle GetPublicKey request.
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn handle_get_public_key(
     state: &mut ServiceState,
-    msg: xous::MessageEnvelope,
+    mut msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
     use xous_ipc::Buffer;
 
-    let buffer = extract_buffer(&msg)?;
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
 
-    let path: Bip32Path = buffer.to_original()
+    let path: Bip32Path = buffer
+        .to_original()
         .map_err(|_| EthAppError::SerializationError)?;
 
-    let response = process_get_public_key(&path)?;
-
-    let bytes = rkyv::to_bytes::<_, 128>(&response)
-        .map_err(|_| EthAppError::SerializationError)?;
-
-    let mut response_buf = Buffer::into_buf(bytes.to_vec())
-        .map_err(|_| EthAppError::SerializationError)?;
-
-    response_buf.replace(msg.body)
-        .map_err(|_| EthAppError::InternalError)?;
-
+    match process_get_public_key(&path) {
+        Ok(response) => buffer.replace(response).map_err(|_| EthAppError::InternalError)?,
+        Err(e) => write_error_response(&mut buffer, e),
+    }
     Ok(())
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub fn handle_get_public_key(
     _state: &mut ServiceState,
     path: &Bip32Path,
@@ -802,30 +765,31 @@ fn process_get_public_key(path: &Bip32Path) -> Result<PublicKeyResponse, EthAppE
 }
 
 /// Handle GetAddress request.
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn handle_get_address(
     state: &mut ServiceState,
-    msg: xous::MessageEnvelope,
+    mut msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
     use xous_ipc::Buffer;
 
-    let buffer = extract_buffer(&msg)?;
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
 
-    let path: Bip32Path = buffer.to_original()
+    let path: Bip32Path = buffer
+        .to_original()
         .map_err(|_| EthAppError::SerializationError)?;
 
-    let response = process_get_public_key(&path)?;
-
-    let mut response_buf = Buffer::into_buf(response.address.to_vec())
-        .map_err(|_| EthAppError::SerializationError)?;
-
-    response_buf.replace(msg.body)
-        .map_err(|_| EthAppError::InternalError)?;
-
+    match process_get_public_key(&path) {
+        Ok(response) => buffer.replace(response.address).map_err(|_| EthAppError::InternalError)?,
+        Err(e) => write_error_response(&mut buffer, e),
+    }
     Ok(())
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub fn handle_get_address(
     _state: &mut ServiceState,
     path: &Bip32Path,
@@ -838,10 +802,10 @@ pub fn handle_get_address(
 // Statistics Handler
 // =============================================================================
 
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 pub fn handle_get_stats(
     state: &mut ServiceState,
-    msg: xous::MessageEnvelope,
+    mut msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
     let stats = state.get_stats();
 
@@ -853,7 +817,7 @@ pub fn handle_get_stats(
     ).map_err(|_| EthAppError::InternalError)
 }
 
-#[cfg(not(target_os = "xous"))]
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
 pub fn handle_get_stats(
     state: &mut ServiceState,
     _msg: (),

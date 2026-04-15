@@ -24,59 +24,51 @@
 //! - Vanadium docs/security.md: Security invariants
 //! - EIP-155, EIP-191, EIP-712: Ethereum standards
 
-#![cfg_attr(target_os = "xous", no_std)]
-#![cfg_attr(target_os = "xous", no_main)]
-
-#[cfg(target_os = "xous")]
-extern crate alloc;
-
+#[allow(dead_code)]
 mod crypto;
+#[allow(dead_code)]
 mod handlers;
+#[allow(dead_code)]
 mod parsing;
+#[allow(dead_code)]
 mod platform;
+#[allow(dead_code)]
 mod state;
+#[allow(dead_code)]
 mod ui;
 
 use ethapp_common::{EthAppError, EthAppOp, SERVER_NAME};
 use num_traits::FromPrimitive;
 
-#[cfg(target_os = "xous")]
-use xous_ipc::Buffer;
+fn main() -> ! {
+    service_main();
+    panic!("ethapp: service_main returned unexpectedly");
+}
 
-/// Main entry point for the Xous ethapp service.
-#[cfg(target_os = "xous")]
-#[xous::xous_main]
-fn xmain() -> ! {
-    // Initialize logging
+/// The actual service loop, shared between native and hosted builds.
+fn service_main() {
     log_server::init_wait().unwrap();
     log::info!("ethapp: Starting Ethereum App service");
 
-    // Initialize the name server connection
     let xns = xous_names::XousNames::new().expect("ethapp: Failed to connect to xous-names");
 
-    // Register our server with the name server
     let sid = xns
         .register_name(SERVER_NAME, None)
         .expect("ethapp: Failed to register server name");
 
     log::info!("ethapp: Registered as '{}'", SERVER_NAME);
 
-    // Initialize service state
     let mut state = state::ServiceState::new();
 
-    // Initialize platform services (TRNG, GAM, PDDB)
     if let Err(e) = state.init_platform() {
         log::error!("ethapp: Failed to initialize platform: {:?}", e);
-        // Continue anyway - some operations may still work
     }
 
     log::info!("ethapp: Service initialized, entering message loop");
 
-    // Main message loop
     loop {
         let msg = xous::receive_message(sid).expect("ethapp: Failed to receive message");
 
-        // Extract opcode from message ID
         let opcode = EthAppOp::from_usize(msg.body.id());
 
         match opcode {
@@ -94,7 +86,6 @@ fn xmain() -> ! {
 }
 
 /// Dispatch a message to the appropriate handler.
-#[cfg(target_os = "xous")]
 fn handle_message(
     state: &mut state::ServiceState,
     op: EthAppOp,
@@ -111,21 +102,15 @@ fn handle_message(
             handlers::handle_get_challenge(state, msg)?;
         }
         EthAppOp::Ping => {
-            // Simple health check - respond immediately
             if let Message::Scalar(s) = &msg.body {
                 xous::return_scalar(msg.sender, s.arg1).ok();
             }
         }
         EthAppOp::Exit => {
             log::info!("ethapp: Received exit command");
-            // In production, this should be restricted to authorized callers
             #[cfg(feature = "dev-mode")]
             {
-                // Use Xous-native process termination, not std::process::exit
-                // which is unavailable in no_std Xous builds.
                 xous::terminate_process(0);
-                // terminate_process may not return, but if it does,
-                // the main loop continues safely.
             }
         }
 
@@ -175,7 +160,6 @@ fn handle_message(
 
         // === Eth2 (placeholder) ===
         EthAppOp::Eth2GetPublicKey | EthAppOp::Eth2SetWithdrawalIndex => {
-            // Return unsupported error
             handlers::return_error(msg, EthAppError::UnsupportedOperation)?;
         }
 
@@ -190,24 +174,6 @@ fn handle_message(
     }
 
     Ok(())
-}
-
-// =============================================================================
-// Native/Host Build (for testing)
-// =============================================================================
-
-#[cfg(not(target_os = "xous"))]
-fn main() {
-    println!("ethapp: Native build for testing only");
-    println!("ethapp: This binary should be built for target_os = xous");
-    println!();
-    println!("To test on host, use the ethapp-cli crate with mock transport.");
-
-    // Run unit tests
-    #[cfg(test)]
-    {
-        println!("Running tests...");
-    }
 }
 
 #[cfg(test)]

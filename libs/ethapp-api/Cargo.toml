@@ -11,6 +11,8 @@ default = []
 std = ["ethapp-common/std"]
 # Enable additional debug logging
 debug = []
+# Hosted-dabao mode: use real Xous IPC on the host target
+hosted-dabao = []
 
 # Dependency versions enforced by Cargo.lock.
 [dependencies]
@@ -23,13 +25,10 @@ rkyv = { version = "0.8.8", default-features = false, features = ["std", "alloc"
 # Numeric traits for opcodes
 num-traits = { version = "0.2.14", default-features = false }
 
-# Xous dependencies (target-specific)
-[target.'cfg(target_os = "xous")'.dependencies]
+# Xous dependencies — unconditional so they're available in hosted-dabao mode too.
+# In pure host test builds (cargo test), the mock path is used instead.
 xous = "0.9.70"
 xous-ipc = "0.10.10"
 xous-names = { package = "xous-api-names", version = "0.9.71" }
-
-# Host dependencies for testing
-[target.'cfg(not(target_os = "xous"))'.dependencies]
 
 [dev-dependencies]

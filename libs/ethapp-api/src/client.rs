@@ -5,24 +5,24 @@
 
 use alloc::vec::Vec;
 
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 use alloc::string::ToString;
 
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 use alloc::format;
 
 use ethapp_common::{
-    AppConfiguration, Bip32Path, ClearSignTransactionRequest, EthAddress,
-    EthAppOp, Hash256, ProvideDomainNameRequest, ProvideMethodInfoRequest,
+    AppConfiguration, Bip32Path, ClearSignTransactionRequest, EthAddress, EthAppError,
+    EthAppOp, Hash256, MetadataContext, ProvideDomainNameRequest, ProvideMethodInfoRequest,
     ProvideNftInfoRequest, ProvideTokenInfoRequest, PublicKeyResponse, SignEip712HashedRequest,
     SignEip712MessageRequest, SignPersonalMessageRequest, SignTransactionRequest, Signature,
 };
 
-#[cfg(target_os = "xous")]
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 use ethapp_common::SERVER_NAME;
 
-#[cfg(target_os = "xous")]
-use num_traits::ToPrimitive;
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+use num_traits::{FromPrimitive, ToPrimitive};
 
 use crate::error::ApiError;
 
@@ -44,11 +44,11 @@ use crate::error::ApiError;
 /// ```
 pub struct EthAppClient {
     /// Connection ID to the ethapp server.
-    #[cfg(target_os = "xous")]
+    #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
     conn: xous::CID,
 
     /// Phantom for non-Xous builds.
-    #[cfg(not(target_os = "xous"))]
+    #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
     _phantom: core::marker::PhantomData<()>,
 }
 
@@ -58,7 +58,7 @@ impl EthAppClient {
     /// # Errors
     ///
     /// Returns `ApiError::ConnectionFailed` if the service is not available.
-    #[cfg(target_os = "xous")]
+    #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
     pub fn new() -> Result<Self, ApiError> {
         let xns = xous_names::XousNames::new()
             .map_err(|_| ApiError::ConnectionFailed("Failed to connect to xous-names".to_string()))?;
@@ -71,7 +71,7 @@ impl EthAppClient {
     }
 
     /// Creates a mock client for host testing.
-    #[cfg(not(target_os = "xous"))]
+    #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
     pub fn new() -> Result<Self, ApiError> {
         Ok(Self {
             _phantom: core::marker::PhantomData,
@@ -283,13 +283,13 @@ impl EthAppClient {
     ///
     /// # Returns
     /// 48-byte BLS12-381 public key, or `UnsupportedOperation` if Eth2 is disabled.
-    #[cfg(target_os = "xous")]
+    #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
     pub fn eth2_get_public_key(&self, path: &Bip32Path) -> Result<Vec<u8>, ApiError> {
         self.send_receive_memory(EthAppOp::Eth2GetPublicKey, path)
     }
 
     /// Gets the BLS public key for Eth2 validator operations (mock for host).
-    #[cfg(not(target_os = "xous"))]
+    #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
     pub fn eth2_get_public_key(&self, _path: &Bip32Path) -> Result<Vec<u8>, ApiError> {
         Ok(Vec::new())
     }
@@ -305,7 +305,7 @@ impl EthAppClient {
     // =========================================================================
 
     /// Sends a scalar message (no payload).
-    #[cfg(target_os = "xous")]
+    #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
     fn send_scalar(&self, op: EthAppOp) -> Result<(), ApiError> {
         let opcode = op.to_u32().ok_or_else(|| {
             ApiError::SerializationFailed("Invalid opcode".to_string())
@@ -321,7 +321,7 @@ impl EthAppClient {
     }
 
     /// Sends a scalar message with one argument.
-    #[cfg(target_os = "xous")]
+    #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
     fn send_scalar_with_arg(&self, op: EthAppOp, arg: usize) -> Result<(), ApiError> {
         let opcode = op.to_u32().ok_or_else(|| {
             ApiError::SerializationFailed("Invalid opcode".to_string())
@@ -336,82 +336,73 @@ impl EthAppClient {
         Ok(())
     }
 
-    /// Sends a memory message and receives a response.
+    /// Sends a memory message and receives a response via xous-ipc Buffer.
     ///
-    /// Uses `check_archived_root` for safe deserialization with validation,
-    /// preventing undefined behavior from malformed IPC responses.
-    #[cfg(target_os = "xous")]
+    /// Serializes `request` using rkyv's low-level serializer (matching
+    /// `xous_ipc::Buffer::into_buf`) and deserializes the response with
+    /// `Buffer::to_original`. Both sides must use the same rkyv version.
+    #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
     fn send_receive_memory<T, R>(&self, op: EthAppOp, request: &T) -> Result<R, ApiError>
     where
-        T: rkyv::Serialize<rkyv::ser::serializers::AllocSerializer<256>>,
+        T: Clone
+            + for<'b, 'a> rkyv::Serialize<
+                rkyv::rancor::Strategy<
+                    rkyv::ser::Serializer<
+                        rkyv::ser::writer::Buffer<'b>,
+                        rkyv::ser::allocator::SubAllocator<'a>,
+                        (),
+                    >,
+                    rkyv::rancor::Failure,
+                >,
+            >,
         R: rkyv::Archive,
-        R::Archived: rkyv::Deserialize<R, rkyv::Infallible>
-            + for<'a> rkyv::CheckBytes<rkyv::validation::validators::DefaultValidator<'a>>,
+        R::Archived: rkyv::Portable
+            + rkyv::Deserialize<
+                R,
+                rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>,
+            >,
     {
-        use rkyv::ser::Serializer;
-
         let opcode = op.to_u32().ok_or_else(|| {
             ApiError::SerializationFailed("Invalid opcode".to_string())
         })?;
 
-        // Serialize the request
-        let mut serializer = rkyv::ser::serializers::AllocSerializer::<256>::default();
-        serializer
-            .serialize_value(request)
-            .map_err(|e| ApiError::SerializationFailed(format!("{:?}", e)))?;
-        let request_bytes = serializer.into_serializer().into_inner();
+        // Always allocate at least one page so MemorySize::new() succeeds even
+        // for zero-sized request types like `()`. The extra space also ensures
+        // the buffer is large enough to hold the server's response.
+        let mut buf = xous_ipc::Buffer::new(4096);
+        buf.replace(request.clone())
+            .map_err(|_| ApiError::SerializationFailed("Buffer serialization failed".to_string()))?;
 
-        // Create a buffer for IPC
-        let mut buf = xous_ipc::Buffer::new();
-        buf.replace(request_bytes.as_ref())
-            .map_err(|_| ApiError::SerializationFailed("Buffer replace failed".to_string()))?;
-
-        // Send and wait for response
         buf.lend_mut(self.conn, opcode as u32)
             .map_err(|e| ApiError::IpcFailed(format!("{:?}", e)))?;
 
-        // Deserialize response
-        let response_bytes: &[u8] = buf
-            .as_flat::<u8, _>()
-            .map_err(|_| ApiError::DeserializationFailed("Buffer access failed".to_string()))?;
-
-        // Check for error response (first 4 bytes are error code if non-zero status)
-        if response_bytes.len() >= 4 {
-            let error_code = u32::from_le_bytes([
-                response_bytes[0],
-                response_bytes[1],
-                response_bytes[2],
-                response_bytes[3],
-            ]);
-            if error_code != 0 && error_code <= 0x1A {
-                if let Some(err) = num_traits::FromPrimitive::from_u32(error_code) {
+        // A 4-byte response is an error code written by write_error_response().
+        // Normal responses are either 1 byte (u8 bool) or >= 20 bytes (addresses,
+        // signatures, AppConfiguration, etc.), so 4 bytes is unambiguous.
+        if buf.used() == 4 {
+            if let Ok(code) = buf.to_original::<u32, _>() {
+                if let Some(err) = EthAppError::from_u32(code) {
                     return Err(ApiError::ServiceError(err));
                 }
             }
         }
 
-        // Deserialize the actual response with validation (safe, no unsafe)
-        let archived = rkyv::check_archived_root::<R>(response_bytes)
-            .map_err(|_| ApiError::DeserializationFailed("Archive validation failed".to_string()))?;
-        let result: R = archived
-            .deserialize(&mut rkyv::Infallible)
-            .map_err(|_| ApiError::DeserializationFailed("Response deserialization failed".to_string()))?;
-
-        Ok(result)
+        buf.to_original::<R, _>()
+            .map_err(|_| ApiError::DeserializationFailed("Response deserialization failed".to_string()))
     }
 
     // Mock implementations for non-Xous builds
-    #[cfg(not(target_os = "xous"))]
+    #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
     fn send_scalar(&self, _op: EthAppOp) -> Result<(), ApiError> {
         Ok(())
     }
 
-    #[cfg(not(target_os = "xous"))]
+    #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
     fn send_scalar_with_arg(&self, _op: EthAppOp, _arg: usize) -> Result<(), ApiError> {
         Ok(())
     }
 
-    #[cfg(not(target_os = "xous"))]
+    #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
     fn send_receive_memory<T, R>(&self, _op: EthAppOp, _request: &T) -> Result<R, ApiError>
     where
         R: Default,
@@ -423,7 +414,7 @@ impl EthAppClient {
 
 impl Drop for EthAppClient {
     fn drop(&mut self) {
-        #[cfg(target_os = "xous")]
+        #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
         {
             // Disconnect from the server
             let _ = xous::send_message(
@@ -434,12 +425,7 @@ impl Drop for EthAppClient {
     }
 }
 
-/// Internal type for metadata context binding.
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-struct MetadataContext {
-    chain_id: u64,
-    address: EthAddress,
-}
+// MetadataContext is defined in ethapp-common and re-exported from there.
 
 // ============================================================================
 // Convenience Builders
@@ -597,7 +583,7 @@ mod tests {
         assert_eq!(request.message_hash, message);
     }
 
-    #[cfg(not(target_os = "xous"))]
+    #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
     #[test]
     fn test_client_creation() {
         let client = EthAppClient::new();

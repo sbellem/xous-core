@@ -17,5 +17,4 @@ pub use ethapp_common::rlp;
 
 pub mod transaction;
 
-pub use rlp::{RlpError, RlpItem};
 pub use transaction::{ParsedTransaction, TransactionParser, TxParseError};

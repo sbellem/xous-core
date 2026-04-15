@@ -38,15 +38,12 @@
 //! - docs/ecalls.md: ECALL patterns (for future hardware dispatch)
 //! - xous-core: ComboHash engine capabilities
 
-#[cfg(target_os = "xous")]
-use alloc::vec::Vec;
-
-#[cfg(not(target_os = "xous"))]
 use std::vec::Vec;
+use std::string::ToString;
 
 use ethapp_common::{Bip32Path, EthAddress, EthAppError, Hash256, Signature, TransactionType};
 use k256::{
-    ecdsa::{signature::hazmat::PrehashSigner, RecoveryId, Signature as K256Signature, SigningKey},
+    ecdsa::{RecoveryId, Signature as K256Signature, SigningKey},
     elliptic_curve::sec1::ToEncodedPoint,
     PublicKey,
 };

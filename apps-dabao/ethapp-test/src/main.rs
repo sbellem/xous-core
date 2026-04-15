@@ -14,17 +14,8 @@
 //!
 //! Run with: cargo xtask dabao-emu ethapp-test
 
-#![cfg_attr(target_os = "xous", no_std)]
-#![cfg_attr(target_os = "xous", no_main)]
-
-#[cfg(target_os = "xous")]
-extern crate alloc;
-
-#[cfg(target_os = "xous")]
-use alloc::{format, string::String, vec, vec::Vec};
-
-#[cfg(not(target_os = "xous"))]
-use std::{format, string::String, vec, vec::Vec};
+use std::string::String;
+use std::vec::Vec;
 
 use ethapp_api::EthAppClient;
 use ethapp_common::{
@@ -389,16 +380,9 @@ fn test_signature_determinism(client: &EthAppClient, runner: &mut TestRunner) {
 // Main
 // =============================================================================
 
-#[cfg(target_os = "xous")]
-#[xous::xous_main]
-fn xous_main() -> ! {
+fn main() -> ! {
     run_tests();
     xous::terminate_process(0)
-}
-
-#[cfg(not(target_os = "xous"))]
-fn main() {
-    run_tests();
 }
 
 fn run_tests() {

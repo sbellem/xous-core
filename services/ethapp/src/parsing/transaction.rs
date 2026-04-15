@@ -13,10 +13,6 @@
 //! - Fail closed on any ambiguity
 //! - Compute correct hash for signing
 
-#[cfg(target_os = "xous")]
-use alloc::vec::Vec;
-
-#[cfg(not(target_os = "xous"))]
 use std::vec::Vec;
 
 use ethapp_common::{EthAddress, Hash256, TransactionType, MAX_TX_SIZE};

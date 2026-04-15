@@ -24,8 +24,11 @@ ethapp-common = { path = "../../libs/ethapp-common" }
 # Hex encoding for display
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
 
+# Board support (needed so xtask can forward utralib/bao1x)
+utralib = { version = "0.1.27", optional = true, default-features = false }
+
 [features]
 default = []
-bao1x = []
+bao1x = ["utralib/bao1x"]
 board-dabao = []
-hosted-dabao = []
+hosted-dabao = ["ethapp-api/hosted-dabao"]

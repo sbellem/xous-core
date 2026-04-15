@@ -372,7 +372,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "modals",
                 "ethapp",
             ];
-            builder.target_hosted_dabao().add_services(&bao_pkgs).add_apps(&get_cratespecs());
+            builder.target_hosted_dabao()
+                .add_services(&bao_pkgs)
+                .add_apps(&get_cratespecs())
+                // ethapp needs dev-mode (test seed) and autoapprove (skip GAM confirmation)
+                // for unattended testing in the emulator. Remove for production builds.
+                .add_feature("ethapp/dev-mode")
+                .add_feature("ethapp/autoapprove");
 
             unsafe {
                 std::env::set_var("UUID", "1234567812345678123456781234567812345678123456781234567812345678");
