@@ -27,7 +27,7 @@ xous-ipc = "0.10"
 xous-names = "0.9"
 
 # Common types
-ethapp-common = { path = "../ethapp-common" }
+ethapp-common = { path = "../../libs/ethapp-common" }
 
 # Serialization
 rkyv = { version = "0.7", default-features = false, features = ["alloc", "size_32", "validation"] }
