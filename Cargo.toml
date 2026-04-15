@@ -126,6 +126,7 @@ members = [
   "apps-dabao/helloworld",
   "apps-dabao/dabao-console",
   "apps-dabao/ethapp-test",
+  "apps-dabao/usb-serial-test",
   "services/ethapp",
   "libs/ethapp-api",
   "libs/ethapp-common",

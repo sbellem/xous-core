@@ -1764,6 +1764,7 @@ dependencies = [
  "bao1x-hal-service",
  "bio-lib",
  "bytemuck",
+ "ethapp-api",
  "log",
  "num-derive 0.4.2",
  "num-traits",
@@ -6819,6 +6820,19 @@ dependencies = [
  "xous-ipc 0.10.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "xous-semver",
  "xous-usb-hid",
+]
+
+[[package]]
+name = "usb-serial-test"
+version = "0.1.0"
+dependencies = [
+ "bao1x-hal",
+ "log",
+ "usb-bao1x",
+ "utralib 0.1.27",
+ "xous 0.9.70 (registry+https://github.com/rust-lang/crates.io-index)",
+ "xous-api-log",
+ "xous-api-ticktimer",
 ]
 
 [[package]]

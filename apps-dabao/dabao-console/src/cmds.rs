@@ -94,6 +94,8 @@ mod ws2812;
 use ws2812::*;
 mod touch;
 use touch::*;
+mod eth;
+use eth::*;
 
 pub struct CmdEnv {
     common_env: CommonEnv,
@@ -106,6 +108,7 @@ pub struct CmdEnv {
     aes_cmd: Aes,
     ws2812_cmd: Ws2812,
     touch_cmd: Touch,
+    eth: Eth,
 }
 impl CmdEnv {
     pub fn new(xns: &xous_names::XousNames) -> CmdEnv {
@@ -134,6 +137,7 @@ impl CmdEnv {
             aes_cmd,
             ws2812_cmd: Ws2812::new(),
             touch_cmd: Touch::new(),
+            eth: Eth::new(),
         }
     }
 
@@ -162,6 +166,7 @@ impl CmdEnv {
             &mut self.aes_cmd,
             &mut self.ws2812_cmd,
             &mut self.touch_cmd,
+            &mut self.eth,
         ];
 
         if let Some(cmdline) = maybe_cmdline {

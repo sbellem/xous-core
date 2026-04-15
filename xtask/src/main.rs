@@ -856,6 +856,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             builder.add_kernel_feature("v2p");
             builder.add_kernel_feature("print-panics");
             builder.add_kernel_feature("debug-proc");
+            // TODO: remove dev-mode and autoapprove for production builds
+            builder.add_feature("ethapp/dev-mode");
+            builder.add_feature("ethapp/autoapprove");
             match task.as_deref() {
                 Some("dabao") => builder.target_bao1x_soc(),
                 _ => panic!("should be unreachable"),
