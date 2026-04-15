@@ -2,10 +2,8 @@
 name = "ethapp-api"
 version = "0.1.0"
 edition = "2021"
-authors = ["Vanadium Team"]
 description = "Client library for the Xous Ethereum App service"
 license = "Apache-2.0"
-repository = "https://github.com/LedgerHQ/vanadium"
 
 [features]
 default = []
@@ -14,21 +12,22 @@ std = ["ethapp-common/std"]
 # Enable additional debug logging
 debug = []
 
+# Dependency versions enforced by Cargo.lock.
 [dependencies]
 # Shared types and opcodes
 ethapp-common = { path = "../ethapp-common" }
 
 # Serialization for IPC
-rkyv = { version = "0.7", default-features = false, features = ["alloc", "size_32", "validation"] }
+rkyv = { version = "0.8.8", default-features = false, features = ["std", "alloc"] }
 
 # Numeric traits for opcodes
-num-traits = { version = "0.2", default-features = false }
+num-traits = { version = "0.2.14", default-features = false }
 
 # Xous dependencies (target-specific)
 [target.'cfg(target_os = "xous")'.dependencies]
-xous = "0.9"
-xous-ipc = "0.10"
-xous-names = "0.9"
+xous = "0.9.70"
+xous-ipc = "0.10.10"
+xous-names = { package = "xous-api-names", version = "0.9.71" }
 
 # Host dependencies for testing
 [target.'cfg(not(target_os = "xous"))'.dependencies]
