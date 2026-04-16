@@ -754,3 +754,20 @@ impl MnemonicImport {
         &self.data[..self.len as usize]
     }
 }
+
+// =============================================================================
+// Serial Frame Transport
+// =============================================================================
+
+/// Maximum serial frame payload size (fits in one Xous page with header).
+pub const SERIAL_FRAME_MAX: usize = 4000;
+
+/// Serial frame data for IPC between USB service and ethapp.
+///
+/// Used for both request and response:
+/// - Request: data = [opcode, payload...]
+/// - Response: data = [status, payload...]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+pub struct SerialFrameData {
+    pub data: Vec<u8>,
+}

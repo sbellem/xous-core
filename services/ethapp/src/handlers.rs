@@ -989,3 +989,199 @@ fn process_clear_seed(state: &mut ServiceState) -> Result<(), EthAppError> {
 
     Ok(())
 }
+
+// =============================================================================
+// Serial Frame Handler
+// =============================================================================
+
+/// Handle a raw serial frame from the host CLI.
+///
+/// The frame data arrives as [opcode, payload...] and the response
+/// is written back as [status, payload...].
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+pub fn handle_serial_frame(
+    state: &mut ServiceState,
+    mut msg: xous::MessageEnvelope,
+) -> Result<(), EthAppError> {
+    use ethapp_common::SerialFrameData;
+    use xous_ipc::Buffer;
+
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
+
+    let frame: SerialFrameData = buffer
+        .to_original()
+        .map_err(|_| EthAppError::SerializationError)?;
+
+    if frame.data.is_empty() {
+        let resp = SerialFrameData { data: vec![crate::serial::STATUS_ERR_INTERNAL] };
+        buffer.replace(resp).map_err(|_| EthAppError::InternalError)?;
+        return Ok(());
+    }
+
+    let opcode = frame.data[0];
+    let payload = &frame.data[1..];
+    let response_data = process_serial_command(state, opcode, payload);
+
+    let resp = SerialFrameData { data: response_data };
+    buffer.replace(resp).map_err(|_| EthAppError::InternalError)?;
+    Ok(())
+}
+
+/// Process a serial command and return the response bytes [status, payload...].
+fn process_serial_command(
+    state: &mut ServiceState,
+    opcode: u8,
+    payload: &[u8],
+) -> Vec<u8> {
+    use crate::serial::*;
+
+    match opcode {
+        // Ping
+        0xFF => vec![STATUS_OK],
+
+        // GetAddress
+        0x51 => {
+            match parse_bip32_path(payload) {
+                Some(path) => {
+                    match process_get_public_key(state, &path) {
+                        Ok(resp) => {
+                            let mut out = vec![STATUS_OK];
+                            out.extend_from_slice(&resp.address);
+                            out
+                        }
+                        Err(e) => vec![error_to_status(&e)],
+                    }
+                }
+                None => vec![STATUS_ERR_INVALID_PATH],
+            }
+        }
+
+        // GetAppConfiguration
+        0x01 => {
+            let cfg = &state.config;
+            let mut flags = 0u8;
+            if cfg.blind_signing_enabled { flags |= 0x01; }
+            if cfg.eth2_supported { flags |= 0x02; }
+            let mut out = vec![STATUS_OK];
+            out.extend_from_slice(&[
+                cfg.version_major, cfg.version_minor, cfg.version_patch,
+                cfg.protocol_version as u8, flags,
+            ]);
+            out
+        }
+
+        // GenerateMnemonic
+        0x62 => {
+            match process_generate_mnemonic(state) {
+                Ok(()) => vec![STATUS_OK],
+                Err(e) => vec![error_to_status(&e)],
+            }
+        }
+
+        // ClearSeed
+        0x63 => {
+            match process_clear_seed(state) {
+                Ok(()) => vec![STATUS_OK],
+                Err(e) => vec![error_to_status(&e)],
+            }
+        }
+
+        // ImportMnemonic
+        0x61 => {
+            if payload.is_empty() {
+                return vec![STATUS_ERR_INTERNAL];
+            }
+            let seed = crate::crypto::seed_from_mnemonic(payload);
+            let _ = state.platform.store_value(crate::platform::PDDB_KEY_SEED, seed.as_bytes());
+            state.imported_seed = Some(seed);
+            log::info!("ethapp: Serial mnemonic import ({} bytes)", payload.len());
+            vec![STATUS_OK]
+        }
+
+        // SignPersonalMessage — payload: [path_bytes...][message_bytes...]
+        0x20 => {
+            match parse_bip32_path_and_remainder(payload) {
+                Some((path, message)) => {
+                    let request = SignPersonalMessageRequest {
+                        path,
+                        message: message.to_vec(),
+                    };
+                    match process_sign_personal_message(state, &request) {
+                        Ok(sig) => signature_response(&sig),
+                        Err(e) => vec![error_to_status(&e)],
+                    }
+                }
+                None => vec![STATUS_ERR_INVALID_PATH],
+            }
+        }
+
+        // SignTransaction — payload: [path_bytes...][rlp_tx_bytes...]
+        0x10 => {
+            match parse_bip32_path_and_remainder(payload) {
+                Some((path, tx_data)) => {
+                    let request = SignTransactionRequest {
+                        path,
+                        tx_data: tx_data.to_vec(),
+                    };
+                    match process_sign_transaction(state, &request) {
+                        Ok(sig) => signature_response(&sig),
+                        Err(e) => vec![error_to_status(&e)],
+                    }
+                }
+                None => vec![STATUS_ERR_INVALID_PATH],
+            }
+        }
+
+        _ => {
+            log::warn!("ethapp: Unknown serial opcode: 0x{:02x}", opcode);
+            vec![STATUS_ERR_INVALID_OPCODE]
+        }
+    }
+}
+
+/// Parse a BIP32 path from the start of a payload.
+/// Format: [depth: u8][component0: u32 BE][component1: u32 BE]...
+fn parse_bip32_path(data: &[u8]) -> Option<Bip32Path> {
+    if data.is_empty() {
+        return None;
+    }
+    let depth = data[0] as usize;
+    if depth == 0 || depth > 10 || data.len() < 1 + depth * 4 {
+        return None;
+    }
+    let mut components = Vec::with_capacity(depth);
+    for i in 0..depth {
+        let offset = 1 + i * 4;
+        components.push(u32::from_be_bytes([
+            data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
+        ]));
+    }
+    Some(Bip32Path::from_slice(&components))
+}
+
+/// Parse a BIP32 path and return remaining bytes.
+fn parse_bip32_path_and_remainder(data: &[u8]) -> Option<(Bip32Path, &[u8])> {
+    if data.is_empty() {
+        return None;
+    }
+    let depth = data[0] as usize;
+    let path_len = 1 + depth * 4;
+    if depth == 0 || depth > 10 || data.len() < path_len {
+        return None;
+    }
+    let path = parse_bip32_path(data)?;
+    Some((path, &data[path_len..]))
+}
+
+/// Build a signature response: [STATUS_OK, v: u64 LE, r: 32 bytes, s: 32 bytes]
+fn signature_response(sig: &Signature) -> Vec<u8> {
+    let mut out = vec![crate::serial::STATUS_OK];
+    out.extend_from_slice(&sig.v.to_le_bytes());
+    out.extend_from_slice(&sig.r);
+    out.extend_from_slice(&sig.s);
+    out
+}

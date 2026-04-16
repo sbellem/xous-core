@@ -6766,6 +6766,7 @@ dependencies = [
  "bao1x-emu",
  "bao1x-hal",
  "bao1x-hal-service",
+ "ethapp-common",
  "frunk_core",
  "locales",
  "log",

@@ -31,6 +31,20 @@ enum SerialListenMode {
     ConsoleListener,
 }
 
+/// State machine for parsing ethapp serial frames (0xE7 magic).
+#[cfg(target_os = "xous")]
+#[derive(Debug)]
+enum EthappFrameState {
+    /// Not parsing a frame (normal console mode).
+    Idle,
+    /// Got magic byte, waiting for length low byte.
+    LengthLow,
+    /// Got length low byte, waiting for length high byte.
+    LengthHigh(u8),
+    /// Reading payload bytes (expected total length).
+    Payload(usize),
+}
+
 fn main() -> ! {
     #[cfg(target_os = "xous")]
     main_hw();
@@ -155,6 +169,11 @@ pub(crate) fn main_hw() -> ! {
     let mut serial_listen_mode: SerialListenMode = SerialListenMode::NoListener;
     let mut serial_buf = Vec::<u8>::new();
     let mut serial_rx_trigger = false; // when true, the condition was met to pass data to the listener (but the listener was not yet installed)
+
+    // Ethapp serial frame state
+    let mut ethapp_frame_state: EthappFrameState = EthappFrameState::Idle;
+    let mut ethapp_frame_buf: Vec<u8> = Vec::new();
+    let mut ethapp_conn: Option<xous::CID> = None;
 
     // under the theory that PIDs cannot be forged.
     // also if someone commandeers a process, all bets are off within that process (this is a general
@@ -596,14 +615,92 @@ pub(crate) fn main_hw() -> ! {
                             serial_buf.clear();
                         }
                         SerialListenMode::ConsoleListener => {
-                            match std::str::from_utf8(&serial_buf) {
-                                Ok(s) => {
+                            // Process bytes one at a time to detect ethapp binary frames (0xE7 magic).
+                            let mut text_start = 0;
+                            let buf_snapshot = serial_buf.clone();
+                            for (i, &byte) in buf_snapshot.iter().enumerate() {
+                                match &ethapp_frame_state {
+                                    EthappFrameState::Idle => {
+                                        if byte == 0xE7 {
+                                            // Flush any accumulated text bytes first
+                                            if text_start < i {
+                                                if let Ok(s) = std::str::from_utf8(&buf_snapshot[text_start..i]) {
+                                                    for c in s.chars() {
+                                                        native_kbd.inject_key(c);
+                                                    }
+                                                }
+                                            }
+                                            ethapp_frame_buf.clear();
+                                            ethapp_frame_state = EthappFrameState::LengthLow;
+                                            text_start = buf_snapshot.len(); // skip rest for text
+                                        }
+                                        // else: normal text byte, will be flushed later
+                                    }
+                                    EthappFrameState::LengthLow => {
+                                        ethapp_frame_state = EthappFrameState::LengthHigh(byte);
+                                    }
+                                    EthappFrameState::LengthHigh(low) => {
+                                        let length = (*low as usize) | ((byte as usize) << 8);
+                                        if length == 0 || length > 4096 {
+                                            log::warn!("ethapp frame: bad length {}", length);
+                                            ethapp_frame_state = EthappFrameState::Idle;
+                                            text_start = i + 1;
+                                        } else {
+                                            ethapp_frame_state = EthappFrameState::Payload(length);
+                                        }
+                                    }
+                                    EthappFrameState::Payload(expected) => {
+                                        ethapp_frame_buf.push(byte);
+                                        if ethapp_frame_buf.len() >= *expected {
+                                            // Complete frame received — dispatch to ethapp
+                                            let frame_data = std::mem::take(&mut ethapp_frame_buf);
+                                            ethapp_frame_state = EthappFrameState::Idle;
+                                            text_start = i + 1;
+
+                                            // Lazy-connect to ethapp service
+                                            if ethapp_conn.is_none() {
+                                                if let Ok(conn) = xns.request_connection_blocking(
+                                                    ethapp_common::SERVER_NAME
+                                                ) {
+                                                    ethapp_conn = Some(conn);
+                                                }
+                                            }
+
+                                            if let Some(conn) = ethapp_conn {
+                                                // Send frame to ethapp and get response
+                                                let request = ethapp_common::SerialFrameData {
+                                                    data: frame_data,
+                                                };
+                                                let mut buf = xous_ipc::Buffer::new(4096);
+                                                if buf.replace(request).is_ok() {
+                                                    let opcode = ethapp_common::EthAppOp::SerialFrame;
+                                                    if buf.lend_mut(conn, num_traits::ToPrimitive::to_u32(&opcode).unwrap()).is_ok() {
+                                                        if let Ok(resp) = buf.to_original::<ethapp_common::SerialFrameData, _>() {
+                                                            // Build response frame and send over serial
+                                                            let resp_len = (1 + resp.data.len()) as u16; // will be resp.data which includes status
+                                                            // Actually resp.data already has [status, payload...]
+                                                            let resp_len = resp.data.len() as u16;
+                                                            let mut frame = Vec::with_capacity(3 + resp.data.len());
+                                                            frame.push(0xE7);
+                                                            frame.extend_from_slice(&resp_len.to_le_bytes());
+                                                            frame.extend_from_slice(&resp.data);
+                                                            for chunk in frame.chunks(crate::hw::SERIAL_MAX_PACKET_SIZE) {
+                                                                cu.serial_port.write(chunk).ok();
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            // Flush remaining text bytes
+                            if matches!(ethapp_frame_state, EthappFrameState::Idle) && text_start < buf_snapshot.len() {
+                                if let Ok(s) = std::str::from_utf8(&buf_snapshot[text_start..]) {
                                     for c in s.chars() {
                                         native_kbd.inject_key(c);
                                     }
-                                }
-                                Err(_) => {
-                                    log::info!("Non UTF-8 received on console: {:x?}", &serial_buf);
                                 }
                             }
                             serial_buf.clear();

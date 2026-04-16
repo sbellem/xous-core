@@ -127,6 +127,13 @@ pub enum EthAppOp {
     /// Returns: success or error via scalar.
     ClearSeed = 0x63,
 
+    // === Serial Transport (0x70-0x7F) ===
+
+    /// Process a raw serial frame from the host CLI.
+    /// Input: [opcode: u8][payload...] via memory message.
+    /// Returns: [status: u8][payload...] via memory message.
+    SerialFrame = 0x70,
+
     // === Internal/Debug (0xF0-0xFF) ===
 
     /// Clear all cached metadata.
@@ -245,6 +252,7 @@ mod tests {
             EthAppOp::GetPublicKey, EthAppOp::GetAddress,
             EthAppOp::SetSeed, EthAppOp::ImportMnemonic,
             EthAppOp::GenerateMnemonic, EthAppOp::ClearSeed,
+            EthAppOp::SerialFrame,
             EthAppOp::ClearMetadataCache, EthAppOp::GetStats, EthAppOp::Ping,
         ];
         for op in &ops {

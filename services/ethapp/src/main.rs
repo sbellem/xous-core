@@ -174,6 +174,11 @@ fn handle_message(
             handlers::handle_clear_seed(state, msg)?;
         }
 
+        // === Serial Transport ===
+        EthAppOp::SerialFrame => {
+            handlers::handle_serial_frame(state, msg)?;
+        }
+
         // === Eth2 (placeholder) ===
         EthAppOp::Eth2GetPublicKey | EthAppOp::Eth2SetWithdrawalIndex => {
             handlers::return_error(msg, EthAppError::UnsupportedOperation)?;

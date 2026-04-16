@@ -28,6 +28,7 @@ rkyv = { version = "0.8.8", default-features = false, features = [
     "alloc",
 ] }
 packed_struct = { version = "0.10", default-features = false } # used by the xous-usb-hid crate
+ethapp-common = { path = "../../libs/ethapp-common" }
 locales = { path = "../../locales" }
 frunk_core = "0.4.2"
 # for debugging interrupts
