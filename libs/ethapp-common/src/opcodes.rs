@@ -117,6 +117,16 @@ pub enum EthAppOp {
     /// Returns: success or error.
     ImportMnemonic = 0x61,
 
+    /// Generate a new 24-word BIP39 mnemonic from TRNG entropy.
+    /// Words are displayed on device screen only (never sent over USB).
+    /// Returns: success or error via scalar.
+    GenerateMnemonic = 0x62,
+
+    /// Wipe the master seed from memory and persistent storage.
+    /// Requires user confirmation.
+    /// Returns: success or error via scalar.
+    ClearSeed = 0x63,
+
     // === Internal/Debug (0xF0-0xFF) ===
 
     /// Clear all cached metadata.
@@ -234,6 +244,7 @@ mod tests {
             EthAppOp::Eth2GetPublicKey, EthAppOp::Eth2SetWithdrawalIndex,
             EthAppOp::GetPublicKey, EthAppOp::GetAddress,
             EthAppOp::SetSeed, EthAppOp::ImportMnemonic,
+            EthAppOp::GenerateMnemonic, EthAppOp::ClearSeed,
             EthAppOp::ClearMetadataCache, EthAppOp::GetStats, EthAppOp::Ping,
         ];
         for op in &ops {

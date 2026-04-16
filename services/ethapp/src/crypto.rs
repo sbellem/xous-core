@@ -38,6 +38,7 @@
 //! - docs/ecalls.md: ECALL patterns (for future hardware dispatch)
 //! - xous-core: ComboHash engine capabilities
 
+use std::string::String;
 use std::vec::Vec;
 use std::string::ToString;
 
@@ -365,6 +366,35 @@ pub fn seed_from_mnemonic(mnemonic: &[u8]) -> Seed {
     }
 
     Seed::from_bytes(&dk)
+}
+
+/// Generate a 24-word BIP39 mnemonic from 256 bits of entropy.
+///
+/// Returns the word list and the derived seed. The entropy is zeroized
+/// after use.
+///
+/// # Security
+///
+/// The caller must provide 32 bytes of cryptographically secure entropy
+/// (from the hardware TRNG on Baochip-1x).
+pub fn generate_mnemonic(entropy: &mut [u8; 32]) -> Result<(Vec<String>, Seed), EthAppError> {
+    use bip39_utils::bytes_to_bip39;
+
+    let entropy_vec = entropy.to_vec();
+
+    // Convert entropy to 24 BIP39 words (bytes_to_bip39 handles SHA-256
+    // checksum computation internally)
+    let words = bytes_to_bip39(&entropy_vec)
+        .map_err(|_| EthAppError::CryptoError)?;
+
+    // Derive seed from the mnemonic words via PBKDF2-HMAC-SHA512
+    let mnemonic_str = words.join(" ");
+    let seed = seed_from_mnemonic(mnemonic_str.as_bytes());
+
+    // Zeroize entropy
+    entropy.zeroize();
+
+    Ok((words, seed))
 }
 
 /// Derive a private key from seed using BIP32/BIP44 path.

@@ -130,6 +130,7 @@ members = [
   "services/ethapp",
   "libs/ethapp-api",
   "libs/ethapp-common",
+  "libs/bip39-utils",
   "services/swaptest1",
   "services/swaptest2",
 ]

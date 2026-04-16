@@ -752,6 +752,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bip39-utils"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "sha2",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2414,6 +2422,7 @@ name = "ethapp"
 version = "0.1.0"
 dependencies = [
  "bip32",
+ "bip39-utils",
  "ethapp-common",
  "getrandom 0.2.12",
  "hex 0.4.3",
@@ -2423,6 +2432,7 @@ dependencies = [
  "log",
  "num-derive 0.4.2",
  "num-traits",
+ "pddb",
  "rand_core 0.6.4",
  "rkyv 0.8.8",
  "sha2",
@@ -2815,6 +2825,7 @@ name = "gam"
 version = "0.1.0"
 dependencies = [
  "bao1x-hal-service",
+ "bip39-utils",
  "blitstr2",
  "com",
  "content-plugin-api",

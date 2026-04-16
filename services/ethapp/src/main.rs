@@ -35,6 +35,8 @@ mod platform;
 #[allow(dead_code)]
 mod state;
 #[allow(dead_code)]
+mod serial;
+#[allow(dead_code)]
 mod ui;
 
 use ethapp_common::{EthAppError, EthAppOp, SERVER_NAME};
@@ -164,6 +166,12 @@ fn handle_message(
         }
         EthAppOp::ImportMnemonic => {
             handlers::handle_import_mnemonic(state, msg)?;
+        }
+        EthAppOp::GenerateMnemonic => {
+            handlers::handle_generate_mnemonic(state, msg)?;
+        }
+        EthAppOp::ClearSeed => {
+            handlers::handle_clear_seed(state, msg)?;
         }
 
         // === Eth2 (placeholder) ===

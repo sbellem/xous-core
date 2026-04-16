@@ -87,6 +87,9 @@ pub struct XousPlatform {
     /// Connection to the Xous TRNG service (native Xous only).
     #[cfg(target_os = "xous")]
     trng: Option<trng::Trng>,
+    /// Connection to the PDDB for persistent storage.
+    #[cfg(feature = "pddb")]
+    pddb: Option<pddb::Pddb>,
     /// Hosted mode doesn't have the trng crate — uses getrandom instead.
     #[cfg(not(target_os = "xous"))]
     _initialized: bool,
@@ -98,6 +101,8 @@ impl XousPlatform {
         Self {
             #[cfg(target_os = "xous")]
             trng: None,
+            #[cfg(feature = "pddb")]
+            pddb: None,
             #[cfg(not(target_os = "xous"))]
             _initialized: false,
         }
@@ -111,6 +116,18 @@ impl XousPlatform {
             let trng = trng::Trng::new(&xns)
                 .map_err(|_| EthAppError::ServiceConnectionFailed)?;
             self.trng = Some(trng);
+
+            // Connect to PDDB for persistent storage
+            #[cfg(feature = "pddb")]
+            match pddb::Pddb::new() {
+                Ok(db) => {
+                    self.pddb = Some(db);
+                    log::info!("Platform: PDDB connected");
+                }
+                Err(e) => {
+                    log::warn!("Platform: PDDB connection failed: {:?} (storage unavailable)", e);
+                }
+            }
         }
 
         #[cfg(not(target_os = "xous"))]
@@ -225,82 +242,89 @@ impl Platform for XousPlatform {
     }
 
     fn store_value(&self, key: &str, value: &[u8]) -> Result<(), EthAppError> {
-        // TODO(baochip): Use PDDB to store value.
-        //
-        // The PDDB provides encrypted, plausibly-deniable storage with
-        // basis-level access control. Keys are stored under the "ethapp.ethereum"
-        // dictionary. The PDDB automatically encrypts data at rest.
-        //
-        // Implementation pattern (from xous-core services/pddb/src/lib.rs):
-        //
-        //   let pddb = self.pddb.as_ref()
-        //       .ok_or(EthAppError::ServiceConnectionFailed)?;
-        //   let mut key_handle = pddb.get(
-        //       PDDB_DICT,          // dictionary name
-        //       key,                // key name
-        //       None,               // default basis
-        //       true,               // create if not exists
-        //       true,               // alloc on create
-        //       Some(value.len()),  // size hint
-        //       None::<fn()>,       // no change callback
-        //   ).map_err(|_| EthAppError::StorageError)?;
-        //   use std::io::Write;
-        //   key_handle.write_all(value)
-        //       .map_err(|_| EthAppError::StorageError)?;
-        //   pddb.sync().map_err(|_| EthAppError::StorageError)?;
-
-        log::info!("Platform: Would store {} bytes to key '{}'", value.len(), key);
-        #[cfg(feature = "dev-mode")]
+        #[cfg(feature = "pddb")]
         {
+            let pddb = self.pddb.as_ref()
+                .ok_or(EthAppError::ServiceConnectionFailed)?;
+            let mut key_handle = pddb.get(
+                PDDB_DICT,
+                key,
+                None,
+                true,
+                true,
+                Some(value.len()),
+                None::<fn()>,
+            ).map_err(|_| EthAppError::StorageError)?;
+            use std::io::Write;
+            key_handle.write_all(value)
+                .map_err(|_| EthAppError::StorageError)?;
+            pddb.sync().map_err(|_| EthAppError::StorageError)?;
+            log::info!("Platform: Stored {} bytes to key '{}'", value.len(), key);
             Ok(())
         }
-        #[cfg(not(feature = "dev-mode"))]
+
+        #[cfg(not(feature = "pddb"))]
         {
-            // Fail closed: without PDDB connection, storage is unavailable.
-            Err(EthAppError::StorageError)
+            log::info!("Platform: Would store {} bytes to key '{}'", value.len(), key);
+            #[cfg(feature = "dev-mode")]
+            { Ok(()) }
+            #[cfg(not(feature = "dev-mode"))]
+            { Err(EthAppError::StorageError) }
         }
     }
 
     fn load_value(&self, key: &str) -> Result<Option<Vec<u8>>, EthAppError> {
-        // TODO(baochip): Use PDDB to load value.
-        //
-        // Implementation pattern:
-        //
-        //   let pddb = self.pddb.as_ref()
-        //       .ok_or(EthAppError::ServiceConnectionFailed)?;
-        //   match pddb.get(
-        //       PDDB_DICT,         // dictionary name
-        //       key,               // key name
-        //       None,              // default basis
-        //       false,             // do not create
-        //       false,             // no alloc
-        //       None,              // no size hint
-        //       None::<fn()>,      // no change callback
-        //   ) {
-        //       Ok(mut handle) => {
-        //           use std::io::Read;
-        //           let mut data = Vec::new();
-        //           handle.read_to_end(&mut data)
-        //               .map_err(|_| EthAppError::StorageError)?;
-        //           Ok(Some(data))
-        //       }
-        //       Err(_) => Ok(None), // key not found
-        //   }
+        #[cfg(feature = "pddb")]
+        {
+            let pddb = match self.pddb.as_ref() {
+                Some(p) => p,
+                None => return Ok(None),
+            };
+            match pddb.get(
+                PDDB_DICT,
+                key,
+                None,
+                false,
+                false,
+                None,
+                None::<fn()>,
+            ) {
+                Ok(mut handle) => {
+                    use std::io::Read;
+                    let mut data = Vec::new();
+                    handle.read_to_end(&mut data)
+                        .map_err(|_| EthAppError::StorageError)?;
+                    log::info!("Platform: Loaded {} bytes from key '{}'", data.len(), key);
+                    Ok(Some(data))
+                }
+                Err(_) => Ok(None),
+            }
+        }
 
-        log::info!("Platform: Would load from key '{}'", key);
-        Ok(None)
+        #[cfg(not(feature = "pddb"))]
+        {
+            log::info!("Platform: Would load from key '{}'", key);
+            Ok(None)
+        }
     }
 
     fn delete_value(&self, key: &str) -> Result<(), EthAppError> {
-        // TODO(baochip): Use PDDB to delete value.
-        //
-        //   let pddb = self.pddb.as_ref()
-        //       .ok_or(EthAppError::ServiceConnectionFailed)?;
-        //   pddb.delete_key(PDDB_DICT, key, None)
-        //       .map_err(|_| EthAppError::StorageError)?;
-        //   pddb.sync().map_err(|_| EthAppError::StorageError)?;
+        #[cfg(feature = "pddb")]
+        {
+            let pddb = match self.pddb.as_ref() {
+                Some(p) => p,
+                None => return Ok(()),
+            };
+            pddb.delete_key(PDDB_DICT, key, None)
+                .map_err(|_| EthAppError::StorageError)?;
+            pddb.sync().map_err(|_| EthAppError::StorageError)?;
+            log::info!("Platform: Deleted key '{}'", key);
+        }
 
-        log::info!("Platform: Would delete key '{}'", key);
+        #[cfg(not(feature = "pddb"))]
+        {
+            log::info!("Platform: Would delete key '{}'", key);
+        }
         Ok(())
     }
 }

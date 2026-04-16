@@ -37,7 +37,7 @@ impl<'a> ShellCmdApi<'a> for Eth {
         use core::fmt::Write;
         let mut ret = String::new();
 
-        let helpstring = "eth [ping|config|address|accounts|signmsg|sign|gentx|seedimport|mnimport]";
+        let helpstring = "eth [ping|config|address|accounts|signmsg|sign|gentx|seedimport|mnimport|mngenerate|clearseed]";
 
         let mut parts = args.split_whitespace();
         let cmd = parts.next().unwrap_or("").to_string();
@@ -239,6 +239,30 @@ impl<'a> ShellCmdApi<'a> for Eth {
                     Err(e) => write!(ret, "gentx failed: {:?}", e).unwrap(),
                 }
             }
+            "mngenerate" => {
+                let client = self.client()?;
+                match client.generate_mnemonic() {
+                    Ok(()) => {
+                        write!(ret, "mnemonic generated (check device screen)").unwrap();
+                        // Show the derived address
+                        let path = Bip32Path::ethereum(0, 0, 0);
+                        if let Ok(addr) = client.get_address(&path) {
+                            ret.push_str("\naddress[0]: 0x");
+                            for b in &addr {
+                                write!(ret, "{:02x}", b).unwrap();
+                            }
+                        }
+                    }
+                    Err(e) => write!(ret, "mngenerate failed: {:?}", e).unwrap(),
+                }
+            }
+            "clearseed" => {
+                let client = self.client()?;
+                match client.clear_seed() {
+                    Ok(()) => write!(ret, "seed cleared").unwrap(),
+                    Err(e) => write!(ret, "clearseed failed: {:?}", e).unwrap(),
+                }
+            }
             "mnimport" => {
                 // eth mnimport <word1> <word2> ... <word12 or word24>
                 if args.len() != 12 && args.len() != 24 {
@@ -249,7 +273,7 @@ impl<'a> ShellCmdApi<'a> for Eth {
                 let client = self.client()?;
                 match client.import_mnemonic(&mnemonic) {
                     Ok(()) => {
-                        write!(ret, "mnemonic imported (in-memory, lost on reboot)").unwrap();
+                        write!(ret, "mnemonic imported").unwrap();
                         // Show the derived address
                         let path = Bip32Path::ethereum(0, 0, 0);
                         if let Ok(addr) = client.get_address(&path) {

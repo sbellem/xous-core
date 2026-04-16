@@ -39,6 +39,9 @@ rand_core = "0.6.4"
 # BIP32 key derivation
 bip32 = { version = "0.5", default-features = false, features = ["secp256k1", "alloc"] }
 
+# BIP39 mnemonic utilities
+bip39-utils = { path = "../../libs/bip39-utils" }
+
 # Hex encoding
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
 
@@ -48,6 +51,8 @@ hex-literal = "0.4"
 [target.'cfg(target_os = "xous")'.dependencies]
 # TRNG service for hardware randomness
 trng = { path = "../trng" }
+# Persistent storage (optional — not all targets have PDDB)
+pddb = { path = "../pddb", optional = true }
 
 [target.'cfg(not(target_os = "xous"))'.dependencies]
 # getrandom with std feature is only used for host testing builds.

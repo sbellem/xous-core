@@ -78,6 +78,13 @@ fn get_seed(state: &ServiceState) -> Result<crate::crypto::Seed, EthAppError> {
         return Ok(seed.clone());
     }
 
+    // Try loading from persistent storage (PDDB)
+    if let Ok(Some(bytes)) = state.platform.load_value(crate::platform::PDDB_KEY_SEED) {
+        if let Some(seed) = crate::crypto::Seed::from_slice(&bytes) {
+            return Ok(seed);
+        }
+    }
+
     // Fall back to dev seed or error
     #[cfg(feature = "dev-mode")]
     {
@@ -86,7 +93,6 @@ fn get_seed(state: &ServiceState) -> Result<crate::crypto::Seed, EthAppError> {
 
     #[cfg(not(feature = "dev-mode"))]
     {
-        // TODO(baochip): Load from PDDB when available
         Err(EthAppError::UnsupportedOperation)
     }
 }
@@ -806,7 +812,9 @@ pub fn handle_set_seed(
         .to_original()
         .map_err(|_| EthAppError::SerializationError)?;
 
-    state.imported_seed = Some(crate::crypto::Seed::from_bytes(&seed_bytes));
+    let seed = crate::crypto::Seed::from_bytes(&seed_bytes);
+    let _ = state.platform.store_value(crate::platform::PDDB_KEY_SEED, seed.as_bytes());
+    state.imported_seed = Some(seed);
     log::info!("ethapp: Seed imported (64 bytes)");
 
     Ok(())
@@ -846,6 +854,7 @@ pub fn handle_import_mnemonic(
     }
 
     let seed = crate::crypto::seed_from_mnemonic(mnemonic_bytes);
+    let _ = state.platform.store_value(crate::platform::PDDB_KEY_SEED, seed.as_bytes());
     state.imported_seed = Some(seed);
     log::info!("ethapp: Seed derived from mnemonic ({} bytes)", mnemonic_bytes.len());
 
@@ -859,5 +868,124 @@ pub fn handle_import_mnemonic(
 ) -> Result<(), EthAppError> {
     let seed = crate::crypto::seed_from_mnemonic(mnemonic.as_bytes());
     state.imported_seed = Some(seed);
+    Ok(())
+}
+
+// =============================================================================
+// Generate Mnemonic Handler
+// =============================================================================
+
+/// Handle GenerateMnemonic request — generate a new 24-word BIP39 mnemonic.
+///
+/// The mnemonic is displayed on the device screen and never sent over USB/IPC.
+/// Only a success/failure scalar is returned to the caller.
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+pub fn handle_generate_mnemonic(
+    state: &mut ServiceState,
+    msg: xous::MessageEnvelope,
+) -> Result<(), EthAppError> {
+    match process_generate_mnemonic(state) {
+        Ok(()) => return_success(msg),
+        Err(e) => return_error(msg, e),
+    }
+}
+
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
+pub fn handle_generate_mnemonic(
+    state: &mut ServiceState,
+    _msg: (),
+) -> Result<(), EthAppError> {
+    process_generate_mnemonic(state)
+}
+
+fn process_generate_mnemonic(state: &mut ServiceState) -> Result<(), EthAppError> {
+    // Generate 256 bits of entropy from TRNG
+    let mut entropy = [0u8; 32];
+    state.platform.rng_fill_bytes(&mut entropy)?;
+
+    // Convert entropy to 24 BIP39 words and derive seed
+    let (words, seed) = crate::crypto::generate_mnemonic(&mut entropy)?;
+
+    // Display the mnemonic on device screen for the user to write down.
+    // Show in groups of 6 words for readability.
+    let mut fields: Vec<(&str, String)> = Vec::new();
+    for (i, word) in words.iter().enumerate() {
+        fields.push(("", format!("{}. {}", i + 1, word)));
+    }
+    let field_refs: Vec<(&str, &str)> = fields.iter()
+        .map(|(k, v)| (*k, v.as_str()))
+        .collect();
+
+    if !state.platform.show_transaction_review(&field_refs, "Write down your recovery phrase")? {
+        return Err(EthAppError::RejectedByUser);
+    }
+
+    // Ask user to confirm they've written it down
+    if !state.platform.confirm_action(
+        "Confirm Backup",
+        "Have you written down all 24 words? This is the ONLY way to recover your wallet.",
+    )? {
+        return Err(EthAppError::RejectedByUser);
+    }
+
+    // Store the derived seed
+    state.imported_seed = Some(seed);
+
+    // Persist to PDDB if available
+    if let Some(ref seed) = state.imported_seed {
+        let _ = state.platform.store_value(
+            crate::platform::PDDB_KEY_SEED,
+            seed.as_bytes(),
+        );
+    }
+
+    state.platform.show_info(true, "Wallet created successfully");
+    log::info!("ethapp: New mnemonic generated and seed stored");
+
+    Ok(())
+}
+
+// =============================================================================
+// Clear Seed Handler
+// =============================================================================
+
+/// Handle ClearSeed request — wipe the master seed from memory and storage.
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+pub fn handle_clear_seed(
+    state: &mut ServiceState,
+    msg: xous::MessageEnvelope,
+) -> Result<(), EthAppError> {
+    match process_clear_seed(state) {
+        Ok(()) => return_success(msg),
+        Err(e) => return_error(msg, e),
+    }
+}
+
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
+pub fn handle_clear_seed(
+    state: &mut ServiceState,
+    _msg: (),
+) -> Result<(), EthAppError> {
+    process_clear_seed(state)
+}
+
+fn process_clear_seed(state: &mut ServiceState) -> Result<(), EthAppError> {
+    // Require user confirmation before wiping
+    if !state.platform.confirm_action(
+        "Wipe Wallet",
+        "This will permanently delete the master seed. Are you sure?",
+    )? {
+        return Err(EthAppError::RejectedByUser);
+    }
+
+    // Zeroize in-memory seed (Seed has ZeroizeOnDrop, so dropping does it)
+    state.imported_seed = None;
+
+    // Delete from persistent storage
+    let _ = state.platform.delete_value(crate::platform::PDDB_KEY_SEED);
+
+    state.platform.show_info(true, "Wallet wiped");
+    log::info!("ethapp: Seed cleared from memory and storage");
+
     Ok(())
 }

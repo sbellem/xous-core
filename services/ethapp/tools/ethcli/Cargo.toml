@@ -1,0 +1,15 @@
+[package]
+name = "ethcli"
+version = "0.1.0"
+edition = "2021"
+description = "Host-side CLI for the Baochip-1x Ethereum hardware wallet"
+
+[[bin]]
+name = "ethcli"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serialport = "4"
+hex = "0.4"
+anyhow = "1"

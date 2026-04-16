@@ -120,13 +120,32 @@ impl EthAppClient {
     /// Import a BIP39 mnemonic and derive the seed via PBKDF2.
     ///
     /// The service performs PBKDF2-HMAC-SHA512 (2048 rounds) to derive
-    /// the 64-byte seed from the mnemonic. The seed is stored in memory
-    /// only (lost on reboot).
+    /// the 64-byte seed from the mnemonic. The seed is persisted to PDDB.
     pub fn import_mnemonic(&self, mnemonic: &str) -> Result<(), ApiError> {
         use ethapp_common::MnemonicImport;
         let import = MnemonicImport::from_str(mnemonic)
             .ok_or_else(|| ApiError::SerializationFailed("mnemonic too long (max 256 bytes)".into()))?;
         self.send_memory(EthAppOp::ImportMnemonic, &import)
+    }
+
+    /// Generate a new 24-word BIP39 mnemonic from device TRNG entropy.
+    ///
+    /// The mnemonic words are displayed on the device screen only and
+    /// are never transmitted over IPC or USB. The derived seed is
+    /// persisted to PDDB.
+    ///
+    /// This is a blocking call — it waits for the user to confirm on device.
+    pub fn generate_mnemonic(&self) -> Result<(), ApiError> {
+        self.send_blocking_scalar(EthAppOp::GenerateMnemonic)
+    }
+
+    /// Wipe the master seed from memory and persistent storage.
+    ///
+    /// Requires on-device user confirmation. After clearing, all
+    /// signing operations will fail until a new seed is imported
+    /// or generated.
+    pub fn clear_seed(&self) -> Result<(), ApiError> {
+        self.send_blocking_scalar(EthAppOp::ClearSeed)
     }
 
     // =========================================================================
@@ -341,6 +360,27 @@ impl EthAppClient {
         )
         .map_err(|e| ApiError::IpcFailed(format!("{:?}", e)))?;
 
+        Ok(())
+    }
+
+    /// Sends a blocking scalar message (waits for server to return).
+    #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+    fn send_blocking_scalar(&self, op: EthAppOp) -> Result<(), ApiError> {
+        let opcode = op.to_u32().ok_or_else(|| {
+            ApiError::SerializationFailed("Invalid opcode".to_string())
+        })?;
+
+        xous::send_message(
+            self.conn,
+            xous::Message::new_blocking_scalar(opcode as usize, 0, 0, 0, 0),
+        )
+        .map_err(|e| ApiError::IpcFailed(format!("{:?}", e)))?;
+
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
+    fn send_blocking_scalar(&self, _op: EthAppOp) -> Result<(), ApiError> {
         Ok(())
     }
 
