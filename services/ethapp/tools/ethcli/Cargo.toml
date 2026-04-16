@@ -1,3 +1,6 @@
+[workspace]
+# Standalone host tool — not part of the device workspace.
+
 [package]
 name = "ethcli"
 version = "0.1.0"
