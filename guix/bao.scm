@@ -41,86 +41,80 @@
 ;;; Git dependency record type
 (define-record-type* <git-dependency> git-dependency make-git-dependency
   git-dependency?
-  (name git-dependency-name) ;Input name (e.g., "git-armv7")
-  (origin
-    git-dependency-origin) ;Origin object for the git repo
-  (url git-dependency-url) ;Git URL (for Cargo.toml patching)
-  (crates git-dependency-crates))
-; Alist of (crate-name . subdir)
+  (name git-dependency-name)         ;Input name (e.g., "git-armv7")
+  (origin git-dependency-origin)     ;Origin object for the git repo
+  (url git-dependency-url)           ;Git URL (for Cargo.toml patching)
+  (crates git-dependency-crates)     ;Alist of (crate-name . subdir)
+  (source-keys git-dependency-source-keys)) ;Cargo source keys: (("branch" . "main") ...)
 
 (define %git-dependencies
   (list (git-dependency (name "git-armv7")
-                        (origin
-                          rust-armv7-git)
+                        (origin rust-armv7-git)
                         (url "https://github.com/Foundation-Devices/armv7.git")
-                        (crates '(("armv7" . "."))))
+                        (crates '(("armv7" . ".")))
+                        (source-keys '(("branch" . "update"))))
         (git-dependency (name "git-atsama5d27")
-                        (origin
-                          rust-atsama5d27-git)
-                        (url
-                         "https://github.com/Foundation-Devices/atsama5d27.git")
-                        (crates '(("atsama5d27" . ".") ("utralib" . "utralib"))))
+                        (origin rust-atsama5d27-git)
+                        (url "https://github.com/Foundation-Devices/atsama5d27.git")
+                        (crates '(("atsama5d27" . ".") ("utralib" . "utralib")))
+                        (source-keys '(("branch" . "master"))))
         (git-dependency (name "git-com-rs")
-                        (origin
-                          rust-com-rs-git)
+                        (origin rust-com-rs-git)
                         (url "https://github.com/betrusted-io/com_rs")
-                        (crates '(("com_rs" . "."))))
+                        (crates '(("com_rs" . ".")))
+                        (source-keys '(("branch" . "main")
+                                       ("rev" . "891bdd3ca8e41f81510d112483e178aea3e3a921"))))
         (git-dependency (name "git-curve25519-dalek")
-                        (origin
-                          rust-curve25519-dalek-git)
-                        (url
-                         "https://github.com/betrusted-io/curve25519-dalek.git")
+                        (origin rust-curve25519-dalek-git)
+                        (url "https://github.com/betrusted-io/curve25519-dalek.git")
                         (crates '(("curve25519-dalek" . "curve25519-dalek")
-                                  ("curve25519-dalek-derive" . "curve25519-dalek-derive"))))
+                                  ("curve25519-dalek-derive" . "curve25519-dalek-derive")))
+                        (source-keys '(("branch" . "main"))))
         (git-dependency (name "git-engine-25519")
-                        (origin
-                          rust-engine-25519-git)
-                        (url
-                         "https://github.com/betrusted-io/xous-engine-25519.git")
-                        (crates '(("engine-25519" . "."))))
+                        (origin rust-engine-25519-git)
+                        (url "https://github.com/betrusted-io/xous-engine-25519.git")
+                        (crates '(("engine-25519" . ".")))
+                        (source-keys '(("rev" . "63d3d1f30736022e791deaacf4dd62c00b42fe2e"))))
         (git-dependency (name "git-engine25519-as")
-                        (origin
-                          rust-engine25519-as-git)
-                        (url
-                         "https://github.com/betrusted-io/engine25519-as.git")
-                        (crates '(("engine25519-as" . "."))))
+                        (origin rust-engine25519-as-git)
+                        (url "https://github.com/betrusted-io/engine25519-as.git")
+                        (crates '(("engine25519-as" . ".")))
+                        (source-keys '(("rev" . "775e8406eb4aad08f05ae10619fcb4ca891ba0a6"))))
         (git-dependency (name "git-ring-xous")
-                        (origin
-                          rust-ring-xous-git)
+                        (origin rust-ring-xous-git)
                         (url "https://github.com/betrusted-io/ring-xous")
-                        (crates '(("ring" . "."))))
+                        (crates '(("ring" . ".")))
+                        (source-keys '(("rev" . "5f86cb10bebd521a45fb3abb06995200aeda2948"))))
         (git-dependency (name "git-rqrr")
-                        (origin
-                          rust-rqrr-git)
+                        (origin rust-rqrr-git)
                         (url "https://github.com/betrusted-io/rqrr.git")
-                        (crates '(("rqrr" . "."))))
+                        (crates '(("rqrr" . ".")))
+                        (source-keys '(("branch" . "rv32-opt"))))
         (git-dependency (name "git-sha2-xous")
-                        (origin
-                          rust-sha2-xous-git)
+                        (origin rust-sha2-xous-git)
                         (url "https://github.com/betrusted-io/hashes.git")
-                        (crates '(("sha2" . "sha2"))))
+                        (crates '(("sha2" . "sha2")))
+                        (source-keys '(("branch" . "sha2-v0.10.8-xous"))))
         (git-dependency (name "git-simple-fatfs")
-                        (origin
-                          rust-simple-fatfs-git)
-                        (url
-                         "https://github.com/betrusted-io/simple-fatfs.git")
-                        (crates '(("simple-fatfs" . "."))))
+                        (origin rust-simple-fatfs-git)
+                        (url "https://github.com/betrusted-io/simple-fatfs.git")
+                        (crates '(("simple-fatfs" . ".")))
+                        (source-keys '(("branch" . "baosec"))))
         (git-dependency (name "git-usb-device")
-                        (origin
-                          rust-usb-device-git)
+                        (origin rust-usb-device-git)
                         (url "https://github.com/betrusted-io/usb-device.git")
-                        (crates '(("usb-device" . "."))))
+                        (crates '(("usb-device" . ".")))
+                        (source-keys '(("branch" . "main"))))
         (git-dependency (name "git-usbd-serial")
-                        (origin
-                          rust-usbd-serial-git)
+                        (origin rust-usbd-serial-git)
                         (url "https://github.com/betrusted-io/usbd-serial.git")
-                        (crates '(("usbd-serial" . "."))))
+                        (crates '(("usbd-serial" . ".")))
+                        (source-keys '(("branch" . "v0.1.1-betrusted"))))
         (git-dependency (name "git-xous-usb-hid")
-                        (origin
-                          rust-xous-usb-hid-git)
-                        (url
-                         "https://github.com/betrusted-io/xous-usb-hid.git")
-                        (crates '(("xous-usb-hid" . "."))))))
+                        (origin rust-xous-usb-hid-git)
+                        (url "https://github.com/betrusted-io/xous-usb-hid.git")
+                        (crates '(("xous-usb-hid" . ".")))
+                        (source-keys '(("branch" . "main"))))))
 
 ;;; Derive git URL to local path mappings from %git-dependencies
 (define (git-deps->mappings deps)
@@ -134,6 +128,33 @@
 
 (define %git-mappings
   (git-deps->mappings %git-dependencies))
+
+;;; Mapping of git input names to their crate subdirectories.
+;;; Format: ((input-name (crate-name . subdir) ...) ...)
+;;; Used by bao-vendor.scm to build the offline vendor tree.
+(define-public %git-vendor-mappings
+  (map (lambda (dep)
+         (cons (git-dependency-name dep) (git-dependency-crates dep)))
+       %git-dependencies))
+
+;;; Pre-assembled git dependency inputs list for package definitions.
+;;; Format: (("git-armv7" <origin>) ("git-curve25519-dalek" <origin>) ...)
+;;; Used by bao-vendor.scm.
+(define-public %git-dependency-inputs
+  (map (lambda (dep)
+         `(,(git-dependency-name dep) ,(git-dependency-origin dep)))
+       %git-dependencies))
+
+;;; Cargo source replacement entries for vendor-config.toml generation.
+;;; Format: ((url (param-type . value) ...) ...)
+;;; Each entry becomes a [source."URL?param=value"] section in the config.
+(define-public %git-source-keys
+  (append-map (lambda (dep)
+                (let ((url (git-dependency-url dep)))
+                  (map (lambda (key)
+                         (list url (car key) (cdr key)))
+                       (git-dependency-source-keys dep))))
+              %git-dependencies))
 
 ;;; Helper to create firmware build packages
 (define* (make-firmware-build name xtask-cmd
