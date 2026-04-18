@@ -1,12 +1,16 @@
 (use-modules (rust-xous-toolchain)
+             (bao-vendor)
              (gnu packages version-control)
              (gnu packages base)
              (gnu packages bash)
+             (gnu packages commencement)
              (gnu packages nss)
              (gnu packages compression))
 
 (packages->manifest
  (list rust-xous-toolchain
+       xous-vendor-setup
+       xous-build
        git
        tar
        gzip
@@ -17,4 +21,6 @@
        findutils
        sed
        diffutils
-       which))
+       which
+       ;; Needed for host-side C compilation (zstd-sys, ring, etc.)
+       gcc-toolchain))

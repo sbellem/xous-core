@@ -9,30 +9,45 @@ or `make` from this directory.
 
 Or manually:
 
-    guix time-machine -C channels.scm -- shell -m manifest.scm
+    guix time-machine -C channels.scm -- shell -L guix -m manifest.scm
 
-## Building Firmware
+## Offline Container Shell
+
+    guix time-machine -C channels.scm -- shell --container -L guix -m manifest.scm
+
+Inside the container:
+
+    xous-vendor-setup
+    xous-build dabao helloworld --no-verify
+
+`xous-vendor-setup` copies the vendored cargo config into `.cargo/`.
+`xous-build` wraps `cargo xtask` with `--config`, `--git-describe`, and
+`--git-rev` flags.
+
+## Building Firmware (Guix packages)
 
     make -C guix boot0
     make -C guix dabao
     make -C guix firmware          # all targets at once
 
-## Offline Development
-
-Vendor all dependencies for offline `cargo xtask`:
+## Offline Development (regular shell)
 
     make -C guix vendor-setup
 
-Then build with the vendor config:
+Then:
+
+    xous-build dabao helloworld --no-verify
+
+Or without the wrapper:
 
     cargo xtask dabao helloworld --config .cargo/vendor-config.toml --no-verify
 
-Remove vendored deps:
+Remove vendored config:
 
     make -C guix vendor-clean
 
-This does not affect `make -C guix boot0` etc. — Guix builds use their own
-sandboxed vendoring.
+Guix package builds (`make -C guix boot0` etc.) are unaffected — they use
+their own sandboxed vendoring.
 
 ## Available Targets
 
@@ -68,13 +83,13 @@ The baobit channel (`github.com/sbellem/baobit`) provides the Rust toolchain
 ## File Layout
 
     channels.scm            # Pin guix + baobit channels
-    manifest.scm            # Dev shell packages
+    manifest.scm            # Dev shell packages (toolchain, vendor setup, ...)
     guix/
       Makefile               # Build orchestration
       bao.scm                # Firmware package definitions (shared with baobit)
       bao-crates.scm         # Crate + git dependency origins (shared with baobit)
       bao-config.scm         # Dev config (local-file source, git-describe version)
-      bao-vendor.scm         # Offline vendor package (xous-vendor-deps)
+      bao-vendor.scm         # Offline vendor packages (xous-vendor-deps, xous-vendor-setup, xous-build)
       firmware-manifest.scm  # All firmware packages for `make firmware`
 
 `bao.scm` and `bao-crates.scm` are identical to baobit. The only difference
