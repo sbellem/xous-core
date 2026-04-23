@@ -90,6 +90,22 @@ enum Commands {
         index: u32,
     },
 
+    /// Check the ETH balance of an address. Uses the device's address at
+    /// --index by default, or an arbitrary --address if provided.
+    Balance {
+        /// JSON-RPC URL
+        #[arg(long)]
+        rpc_url: String,
+
+        /// Account index (uses device address at this index). Ignored if --address is set.
+        #[arg(long, default_value = "0")]
+        index: u32,
+
+        /// Query this address instead of the device's. No device needed.
+        #[arg(long)]
+        address: Option<String>,
+    },
+
     /// Fetch chain state needed to build a transaction: chain ID, nonce,
     /// gas price, EIP-1559 fee suggestion, balance, and gas limit estimate.
     /// Uses the device's address at the given index.
@@ -216,6 +232,9 @@ fn main() -> Result<()> {
         Commands::Publish { signed_tx_hex, rpc_url, wait, wait_timeout } => {
             return cmd_publish(signed_tx_hex, rpc_url, *wait, *wait_timeout);
         }
+        Commands::Balance { rpc_url, address: Some(ref addr), .. } => {
+            return cmd_balance_address(rpc_url, addr);
+        }
         _ => {}
     }
 
@@ -241,7 +260,11 @@ fn main() -> Result<()> {
         Commands::TxInfo { rpc_url, index, to, value, data } => cmd_tx_info(
             &mut transport, &rpc_url, index, to.as_deref(), value, data.as_deref(),
         ),
-        Commands::BuildTx { .. } | Commands::Publish { .. } => unreachable!("handled above"),
+        Commands::Balance { rpc_url, index, address: None } => {
+            cmd_balance_device(&mut transport, &rpc_url, index)
+        }
+        Commands::BuildTx { .. } | Commands::Publish { .. }
+        | Commands::Balance { address: Some(_), .. } => unreachable!("handled above"),
     }
 }
 
@@ -645,6 +668,36 @@ fn print_signature(data: &[u8]) {
     } else {
         println!("signature: {}", hex::encode(data));
     }
+}
+
+// =============================================================================
+// balance: check ETH balance
+// =============================================================================
+
+fn cmd_balance_device(t: &mut Transport, rpc_url: &str, index: u32) -> Result<()> {
+    let path = bip44_payload(0, 0, index);
+    let (status, payload) = t.command(OP_GET_ADDRESS, &path)?;
+    if status != STATUS_OK || payload.len() < 20 {
+        bail!("failed to get address from device (status: 0x{:02x})", status);
+    }
+    let addr_hex = format!("0x{}", hex::encode(&payload[..20]));
+    print_balance(&addr_hex, rpc_url)
+}
+
+fn cmd_balance_address(rpc_url: &str, address: &str) -> Result<()> {
+    let addr = if address.starts_with("0x") || address.starts_with("0X") {
+        address.to_string()
+    } else {
+        format!("0x{}", address)
+    };
+    print_balance(&addr, rpc_url)
+}
+
+fn print_balance(addr_hex: &str, rpc_url: &str) -> Result<()> {
+    let mut rpc = rpc::RpcClient::new(rpc_url);
+    let balance = rpc.balance(addr_hex)?;
+    println!("{} {}", addr_hex, format_eth(balance));
+    Ok(())
 }
 
 // =============================================================================
