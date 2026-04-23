@@ -3,6 +3,7 @@
 //! Communicates with the ethapp service over USB CDC-ACM serial,
 //! replacing the need for `tio /dev/ttyACM0`.
 
+mod rpc;
 mod transport;
 
 use std::io::{self, BufRead, Write};
@@ -83,6 +84,31 @@ enum Commands {
         index: u32,
     },
 
+    /// Fetch chain state needed to build a transaction: chain ID, nonce,
+    /// gas price, EIP-1559 fee suggestion, balance, and gas limit estimate.
+    /// Uses the device's address at the given index.
+    TxInfo {
+        /// JSON-RPC URL (e.g. https://ethereum-sepolia-rpc.publicnode.com)
+        #[arg(long)]
+        rpc_url: String,
+
+        /// Account index — uses device address at this index for queries
+        #[arg(long, default_value = "0")]
+        index: u32,
+
+        /// Recipient address for gas estimation context (else assumes 21000)
+        #[arg(long)]
+        to: Option<String>,
+
+        /// Value in wei for gas estimation context
+        #[arg(long, default_value = "0")]
+        value: u128,
+
+        /// Calldata hex for contract-call gas estimation
+        #[arg(long)]
+        data: Option<String>,
+    },
+
     /// Build, sign, and emit a legacy (EIP-155) ETH transfer transaction.
     /// Output is the raw signed tx hex ready to broadcast via eth_sendRawTransaction.
     GenTx {
@@ -137,6 +163,9 @@ fn main() -> Result<()> {
         } => cmd_gen_tx(
             &mut transport, &to, value, nonce, chain_id, gas_price, gas_limit, index,
             data.as_deref(),
+        ),
+        Commands::TxInfo { rpc_url, index, to, value, data } => cmd_tx_info(
+            &mut transport, &rpc_url, index, to.as_deref(), value, data.as_deref(),
         ),
     }
 }
@@ -314,6 +343,121 @@ fn print_signature(data: &[u8]) {
     } else {
         println!("signature: {}", hex::encode(data));
     }
+}
+
+// =============================================================================
+// tx-info: fetch chain state for transaction construction
+// =============================================================================
+
+fn cmd_tx_info(
+    t: &mut Transport,
+    rpc_url: &str,
+    index: u32,
+    to: Option<&str>,
+    value: u128,
+    data_hex: Option<&str>,
+) -> Result<()> {
+    // 1. Get our address from the device
+    let path = bip44_payload(0, 0, index);
+    let (status, payload) = t.command(OP_GET_ADDRESS, &path)?;
+    if status != STATUS_OK || payload.len() < 20 {
+        bail!("failed to get address from device (status: 0x{:02x})", status);
+    }
+    let addr_hex = format!("0x{}", hex::encode(&payload[..20]));
+
+    println!("address[{}]   {}", index, addr_hex);
+
+    // 2. Query the RPC
+    let mut rpc = rpc::RpcClient::new(rpc_url);
+
+    let chain_id = rpc.chain_id()?;
+    println!("chain id     {} ({})", chain_id, chain_name(chain_id));
+
+    let balance = rpc.balance(&addr_hex)?;
+    println!("balance      {} wei  ({})", balance, format_eth(balance));
+
+    let nonce = rpc.nonce(&addr_hex)?;
+    println!("nonce        {}  (pending)", nonce);
+
+    let gas_price = rpc.gas_price()?;
+    println!("gas price    {} wei  ({})", gas_price, format_gwei(gas_price));
+
+    match rpc.fee_suggestion() {
+        Ok(Some(fees)) => {
+            println!("EIP-1559:");
+            println!(
+                "  next base fee       {} wei  ({})",
+                fees.next_base_fee, format_gwei(fees.next_base_fee)
+            );
+            println!(
+                "  priority fee (p50)  {} wei  ({})",
+                fees.priority_fee_per_gas, format_gwei(fees.priority_fee_per_gas)
+            );
+            let max_fee = fees.max_fee_per_gas();
+            println!(
+                "  suggested max fee   {} wei  ({})",
+                max_fee, format_gwei(max_fee)
+            );
+        }
+        Ok(None) => println!("EIP-1559:    not supported by this RPC"),
+        Err(e) => println!("EIP-1559:    error fetching feeHistory: {}", e),
+    }
+
+    // 3. Gas estimate
+    let calldata: Vec<u8> = match data_hex {
+        Some(h) => hex::decode(h.strip_prefix("0x").unwrap_or(h))?,
+        None => Vec::new(),
+    };
+    let gas_limit = match to {
+        Some(to_addr) => {
+            let to_clean = to_addr.strip_prefix("0x").unwrap_or(to_addr);
+            let to_full = format!("0x{}", to_clean);
+            match rpc.estimate_gas(&addr_hex, &to_full, value, &calldata) {
+                Ok(g) => {
+                    println!("gas limit    {} (estimated for the given --to/--value/--data)", g);
+                    g
+                }
+                Err(e) => {
+                    eprintln!("gas estimate failed: {}", e);
+                    21_000
+                }
+            }
+        }
+        None => {
+            println!("gas limit    21000 (default; pass --to to estimate against a target)");
+            21_000
+        }
+    };
+
+    // 4. Convenience: print a ready-to-use gen-tx invocation
+    if let Some(to_addr) = to {
+        println!();
+        println!("Ready-to-use gen-tx command:");
+        let calldata_arg = if data_hex.is_some() {
+            format!(" --data {}", data_hex.unwrap())
+        } else {
+            String::new()
+        };
+        println!(
+            "  ethcli gen-tx {} {} \\\n    --nonce {} --chain-id {} \\\n    --gas-price {} --gas-limit {} --index {}{}",
+            to_addr, value, nonce, chain_id, gas_price, gas_limit, index, calldata_arg
+        );
+    }
+
+    Ok(())
+}
+
+fn format_eth(wei: u128) -> String {
+    let eth = wei as f64 / 1e18;
+    if eth >= 0.0001 {
+        format!("{:.6} ETH", eth)
+    } else {
+        format!("{:.9} ETH", eth)
+    }
+}
+
+fn format_gwei(wei: u128) -> String {
+    format!("{:.3} gwei", wei as f64 / 1e9)
 }
 
 // =============================================================================
