@@ -925,7 +925,7 @@ pub fn handle_generate_mnemonic(
     msg: xous::MessageEnvelope,
 ) -> Result<(), EthAppError> {
     match process_generate_mnemonic(state) {
-        Ok(()) => return_success(msg),
+        Ok(_words) => return_success(msg),
         Err(e) => return_error(msg, e),
     }
 }
@@ -935,10 +935,12 @@ pub fn handle_generate_mnemonic(
     state: &mut ServiceState,
     _msg: (),
 ) -> Result<(), EthAppError> {
-    process_generate_mnemonic(state)
+    process_generate_mnemonic(state).map(|_| ())
 }
 
-fn process_generate_mnemonic(state: &mut ServiceState) -> Result<(), EthAppError> {
+/// Returns the generated mnemonic words (for dev-mode serial response).
+/// On production builds the words are only shown on the device screen.
+fn process_generate_mnemonic(state: &mut ServiceState) -> Result<Vec<String>, EthAppError> {
     // Generate 256 bits of entropy from TRNG
     let mut entropy = [0u8; 32];
     state.platform.rng_fill_bytes(&mut entropy)?;
@@ -982,7 +984,7 @@ fn process_generate_mnemonic(state: &mut ServiceState) -> Result<(), EthAppError
     state.platform.show_info(true, "Wallet created successfully");
     log::info!("ethapp: New mnemonic generated and seed stored");
 
-    Ok(())
+    Ok(words)
 }
 
 // =============================================================================
@@ -1149,7 +1151,20 @@ fn process_serial_command(
         // GenerateMnemonic
         0x62 => {
             match process_generate_mnemonic(state) {
-                Ok(()) => vec![STATUS_OK],
+                Ok(words) => {
+                    let mut out = vec![STATUS_OK];
+                    // On dev-mode builds, include the mnemonic in the response
+                    // so the host CLI can display it (dabao has no screen).
+                    // On production builds, the words are only on the device screen.
+                    #[cfg(feature = "dev-mode")]
+                    {
+                        let mnemonic_str = words.join(" ");
+                        out.extend_from_slice(mnemonic_str.as_bytes());
+                    }
+                    #[cfg(not(feature = "dev-mode"))]
+                    { let _ = words; }
+                    out
+                }
                 Err(e) => vec![error_to_status(&e)],
             }
         }

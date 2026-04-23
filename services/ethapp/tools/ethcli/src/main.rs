@@ -307,13 +307,39 @@ fn cmd_accounts(t: &mut Transport, count: u32) -> Result<()> {
 
 fn cmd_generate_mnemonic(t: &mut Transport) -> Result<()> {
     println!("Generating new mnemonic on device...");
-    println!("Check the device screen for your 24-word recovery phrase.");
-    let (status, _) = t.command(OP_GENERATE_MNEMONIC, &[])?;
-    if status == STATUS_OK {
-        println!("Wallet created successfully.");
-    } else {
+    let (status, payload) = t.command(OP_GENERATE_MNEMONIC, &[])?;
+    if status != STATUS_OK {
         bail!("generate-mnemonic failed (status: 0x{:02x})", status);
     }
+
+    if !payload.is_empty() {
+        // Dev-mode: device returned the mnemonic words for backup.
+        let mnemonic = String::from_utf8_lossy(&payload);
+        let words: Vec<&str> = mnemonic.split_whitespace().collect();
+        println!();
+        println!("╔══════════════════════════════════════════════════════════════╗");
+        println!("║  BACKUP YOUR RECOVERY PHRASE                                ║");
+        println!("║  Write these words down on paper. Store securely.           ║");
+        println!("║  This is the ONLY way to recover your wallet.               ║");
+        println!("╚══════════════════════════════════════════════════════════════╝");
+        println!();
+        for (i, word) in words.iter().enumerate() {
+            print!("  {:>2}. {:<12}", i + 1, word);
+            if (i + 1) % 4 == 0 {
+                println!();
+            }
+        }
+        if words.len() % 4 != 0 {
+            println!();
+        }
+        println!();
+        println!("Wallet created successfully.");
+    } else {
+        // Production: words shown on device screen only.
+        println!("Check the device screen for your 24-word recovery phrase.");
+        println!("Wallet created successfully.");
+    }
+
     Ok(())
 }
 
