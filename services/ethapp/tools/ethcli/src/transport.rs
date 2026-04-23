@@ -108,27 +108,36 @@ impl Transport {
 
 /// Auto-detect the Baochip-1x device by scanning serial ports.
 fn auto_detect() -> Result<String> {
-    let ports = serialport::available_ports()
-        .context("Failed to enumerate serial ports")?;
-
-    for port in &ports {
-        if let serialport::SerialPortType::UsbPort(info) = &port.port_type {
-            if info.vid == VID && info.pid == PID {
+    // Try serialport's enumeration first (works fully when libudev is enabled).
+    if let Ok(ports) = serialport::available_ports() {
+        // VID/PID match (only available when serialport is built with libudev)
+        for port in &ports {
+            if let serialport::SerialPortType::UsbPort(info) = &port.port_type {
+                if info.vid == VID && info.pid == PID {
+                    return Ok(port.port_name.clone());
+                }
+            }
+        }
+        // Fallback: name-based match
+        for port in &ports {
+            if port.port_name.contains("ttyACM") || port.port_name.contains("cu.usbmodem") {
                 return Ok(port.port_name.clone());
             }
         }
     }
 
-    // If no VID/PID match, look for common ACM device names
-    for port in &ports {
-        if port.port_name.contains("ttyACM") || port.port_name.contains("cu.usbmodem") {
-            return Ok(port.port_name.clone());
+    // Last resort: try common Linux device paths directly (no enumeration).
+    // This is the only path that works when serialport is built without libudev.
+    for path in &["/dev/ttyACM0", "/dev/ttyACM1", "/dev/ttyACM2"] {
+        if std::path::Path::new(path).exists() {
+            return Ok(path.to_string());
         }
     }
 
     bail!(
-        "No Baochip-1x device found. Connect the device or specify --port.\n\
-         Available ports: {:?}",
-        ports.iter().map(|p| &p.port_name).collect::<Vec<_>>()
+        "No Baochip-1x device found. Connect the device or specify --port \
+         (e.g. --port /dev/ttyACM0). VID/PID auto-detect requires libudev: \
+         install libudev-dev (or systemd-devel) and rebuild with serialport's \
+         default features."
     )
 }

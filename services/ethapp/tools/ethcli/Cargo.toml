@@ -13,6 +13,8 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-serialport = "4"
+# Disable default features to avoid libudev system dep on Linux.
+# Auto-detect by USB VID/PID is unavailable; user must pass --port.
+serialport = { version = "4", default-features = false }
 hex = "0.4"
 anyhow = "1"
