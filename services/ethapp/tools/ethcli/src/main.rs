@@ -24,7 +24,7 @@ const OP_SIGN_PERSONAL_MESSAGE: u8 = 0x20;
 const OP_SIGN_TRANSACTION: u8 = 0x10;
 
 #[derive(Parser)]
-#[command(name = "ethcli", about = "Baochip-1x Ethereum hardware wallet CLI")]
+#[command(name = "ethcli", about = "Baochip-1x Ethereum hardware wallet CLI", version = env!("ETHCLI_VERSION"))]
 struct Cli {
     /// Serial port path (auto-detected if not specified)
     #[arg(long, short)]
