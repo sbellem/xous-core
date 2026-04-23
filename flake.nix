@@ -238,11 +238,38 @@
             if pkgs.stdenv.isLinux
             then [ pkgs.pkg-config pkgs.systemd ]
             else [ ];
+
+          # Host CLI for the Baochip-1x Ethereum hardware wallet.
+          # Built with the standard nixpkgs Rust platform (host triple),
+          # not the cross-compiling rustToolchainXous.
+          ethcli = pkgs.rustPlatform.buildRustPackage {
+            pname = "ethcli";
+            version = "0.1.0";
+            src = pkgs.lib.cleanSourceWith {
+              src = self + "/services/ethapp/tools/ethcli";
+              filter = path: type:
+                let baseName = baseNameOf path; in
+                type == "directory"
+                || baseName == "Cargo.toml"
+                || baseName == "Cargo.lock"
+                || pkgs.lib.hasSuffix ".rs" baseName;
+            };
+            cargoLock.lockFile = self + "/services/ethapp/tools/ethcli/Cargo.lock";
+            nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.pkg-config ];
+            buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.systemd ];
+            # No tests to run yet
+            doCheck = false;
+            meta = with pkgs.lib; {
+              description = "Host CLI for the Baochip-1x Ethereum hardware wallet";
+              mainProgram = "ethcli";
+              platforms = platforms.unix;
+            };
+          };
         in
         {
           packages = {
             # Main packages
-            inherit dabao-helloworld bao1x-boot0 bao1x-alt-boot1 bao1x-boot1 bao1x-baremetal-dabao baosec;
+            inherit dabao-helloworld bao1x-boot0 bao1x-alt-boot1 bao1x-boot1 bao1x-baremetal-dabao baosec ethcli;
 
             # bootloader stage 1
             boot1 = pkgs.runCommand "boot1" {} ''
@@ -294,6 +321,7 @@
                 echo "  • nix build .#bao1x-boot0"
                 echo "  • nix build .#bao1x-boot1"
                 echo "  • nix build .#bao1x-alt-boot1"
+                echo "  • nix build .#ethcli              (host CLI)"
                 echo ""
                 echo "Aliases:"
                 echo "  • nix build .#dabao       (dabao-helloworld)"
