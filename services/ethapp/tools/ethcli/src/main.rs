@@ -300,6 +300,14 @@ fn cmd_sign_tx(t: &mut Transport, rlp_hex: &str, index: u32) -> Result<()> {
     let hex_str = rlp_hex.strip_prefix("0x").unwrap_or(rlp_hex);
     let tx_data = hex::decode(hex_str)?;
 
+    // Detect tx type. EIP-2718 typed txs start with a type byte < 0x80.
+    // Legacy txs start with the RLP list prefix (0xc0..=0xff).
+    let tx_type = if !tx_data.is_empty() && tx_data[0] < 0x80 {
+        Some(tx_data[0])
+    } else {
+        None
+    };
+
     let mut payload = bip44_payload(0, 0, index);
     payload.extend_from_slice(&tx_data);
 
@@ -307,8 +315,168 @@ fn cmd_sign_tx(t: &mut Transport, rlp_hex: &str, index: u32) -> Result<()> {
     if status != STATUS_OK {
         bail!("sign-tx failed (status: 0x{:02x})", status);
     }
-    print_signature(&resp);
+    if resp.len() < 72 {
+        print_signature(&resp);
+        return Ok(());
+    }
+    let v = u64::from_le_bytes(resp[0..8].try_into().unwrap());
+    let mut r = [0u8; 32];
+    let mut s = [0u8; 32];
+    r.copy_from_slice(&resp[8..40]);
+    s.copy_from_slice(&resp[40..72]);
+
+    println!("v={}", v);
+    println!("r={}", hex::encode(&r));
+    println!("s={}", hex::encode(&s));
+
+    // Assemble the broadcastable signed RLP.
+    match assemble_signed_tx(&tx_data, tx_type, v, &r, &s) {
+        Ok(signed) => println!("raw: 0x{}", hex::encode(&signed)),
+        Err(e) => eprintln!(
+            "warning: could not assemble signed RLP ({}); pass an *unsigned* tx to get a broadcastable result",
+            e
+        ),
+    }
+
     Ok(())
+}
+
+/// Combine an unsigned tx with the signature returned by the device into a
+/// broadcastable signed RLP. Supports legacy EIP-155, EIP-2930, and EIP-1559.
+fn assemble_signed_tx(
+    tx_data: &[u8],
+    tx_type: Option<u8>,
+    v: u64,
+    r: &[u8; 32],
+    s: &[u8; 32],
+) -> Result<Vec<u8>> {
+    match tx_type {
+        // Legacy EIP-155: unsigned has 9 items [n, gp, gl, to, value, data, chainId, 0, 0].
+        // Replace last 3 with [v, r, s] to form the signed form.
+        None => {
+            let items = decode_top_level_items(tx_data)?;
+            if items.len() != 9 {
+                bail!("expected 9 RLP items in legacy tx, got {}", items.len());
+            }
+            // Sanity: items[7] and items[8] of an unsigned EIP-155 tx are the empty bytes (0).
+            // If they aren't, the input is likely already signed.
+            if items[7] != [0x80] || items[8] != [0x80] {
+                bail!("input looks already signed (items 7,8 not zero)");
+            }
+            let mut payload = Vec::new();
+            for item in items.iter().take(6) {
+                payload.extend_from_slice(item);
+            }
+            payload.extend_from_slice(&rlp_encode_u64(v));
+            payload.extend_from_slice(&rlp_encode_bytes(trim_leading_zeros(r)));
+            payload.extend_from_slice(&rlp_encode_bytes(trim_leading_zeros(s)));
+            Ok(rlp_encode_list(&payload))
+        }
+        // EIP-2930 (type 0x01): unsigned has 8 items [chainId, n, gp, gl, to, value, data, accessList].
+        // Append [yParity, r, s] to form the signed body, then prepend type byte.
+        Some(0x01) => {
+            let items = decode_top_level_items(&tx_data[1..])?;
+            if items.len() != 8 {
+                bail!("expected 8 RLP items in EIP-2930 tx, got {}", items.len());
+            }
+            let mut payload = Vec::new();
+            for item in &items {
+                payload.extend_from_slice(item);
+            }
+            payload.extend_from_slice(&rlp_encode_u64(v));
+            payload.extend_from_slice(&rlp_encode_bytes(trim_leading_zeros(r)));
+            payload.extend_from_slice(&rlp_encode_bytes(trim_leading_zeros(s)));
+            let mut out = vec![0x01];
+            out.extend_from_slice(&rlp_encode_list(&payload));
+            Ok(out)
+        }
+        // EIP-1559 (type 0x02): unsigned has 9 items
+        // [chainId, n, maxPriorityFeePerGas, maxFeePerGas, gl, to, value, data, accessList].
+        Some(0x02) => {
+            let items = decode_top_level_items(&tx_data[1..])?;
+            if items.len() != 9 {
+                bail!("expected 9 RLP items in EIP-1559 tx, got {}", items.len());
+            }
+            let mut payload = Vec::new();
+            for item in &items {
+                payload.extend_from_slice(item);
+            }
+            payload.extend_from_slice(&rlp_encode_u64(v));
+            payload.extend_from_slice(&rlp_encode_bytes(trim_leading_zeros(r)));
+            payload.extend_from_slice(&rlp_encode_bytes(trim_leading_zeros(s)));
+            let mut out = vec![0x02];
+            out.extend_from_slice(&rlp_encode_list(&payload));
+            Ok(out)
+        }
+        Some(t) => bail!("unsupported tx type byte: 0x{:02x}", t),
+    }
+}
+
+/// Decode a top-level RLP list into its constituent items, returning each
+/// item in its original encoded form (so we can splice without re-encoding
+/// nested structures like accessList).
+fn decode_top_level_items(data: &[u8]) -> Result<Vec<Vec<u8>>> {
+    if data.is_empty() {
+        bail!("empty RLP");
+    }
+    let (header_len, payload_len, is_list) = parse_rlp_header(data)?;
+    if !is_list {
+        bail!("expected RLP list, got string");
+    }
+    let payload = &data[header_len..header_len + payload_len];
+    let mut items = Vec::new();
+    let mut offset = 0;
+    while offset < payload.len() {
+        let item_len = item_total_len(&payload[offset..])?;
+        items.push(payload[offset..offset + item_len].to_vec());
+        offset += item_len;
+    }
+    Ok(items)
+}
+
+/// Returns (header_len, payload_len, is_list).
+fn parse_rlp_header(data: &[u8]) -> Result<(usize, usize, bool)> {
+    if data.is_empty() {
+        bail!("empty RLP");
+    }
+    let first = data[0];
+    match first {
+        0x00..=0x7f => Ok((0, 1, false)), // single-byte string, "header" is implicit
+        0x80..=0xb7 => Ok((1, (first - 0x80) as usize, false)),
+        0xb8..=0xbf => {
+            let lb = (first - 0xb7) as usize;
+            if data.len() < 1 + lb {
+                bail!("truncated long string length");
+            }
+            let mut len = 0usize;
+            for i in 0..lb {
+                len = (len << 8) | data[1 + i] as usize;
+            }
+            Ok((1 + lb, len, false))
+        }
+        0xc0..=0xf7 => Ok((1, (first - 0xc0) as usize, true)),
+        0xf8..=0xff => {
+            let lb = (first - 0xf7) as usize;
+            if data.len() < 1 + lb {
+                bail!("truncated long list length");
+            }
+            let mut len = 0usize;
+            for i in 0..lb {
+                len = (len << 8) | data[1 + i] as usize;
+            }
+            Ok((1 + lb, len, true))
+        }
+    }
+}
+
+fn item_total_len(data: &[u8]) -> Result<usize> {
+    let (header_len, payload_len, _) = parse_rlp_header(data)?;
+    if header_len == 0 {
+        // single-byte string in 0x00..=0x7f: data[0] IS the value
+        Ok(1)
+    } else {
+        Ok(header_len + payload_len)
+    }
 }
 
 /// Encode a BIP44 Ethereum path as bytes for the wire protocol.
