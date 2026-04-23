@@ -64,6 +64,29 @@ fn write_error_response(buffer: &mut xous_ipc::Buffer, error: EthAppError) {
 }
 
 
+/// Returns true for Ethereum mainnet and major L2 chain IDs where
+/// real funds are at risk. Used to block signing on displayless boards
+/// (dev-mode/autoapprove builds) that lack a trusted display.
+#[cfg(any(feature = "autoapprove", feature = "dev-mode"))]
+fn is_mainnet_chain(chain_id: u64) -> bool {
+    matches!(
+        chain_id,
+        1          // Ethereum mainnet
+        | 10       // Optimism
+        | 56       // BSC
+        | 100      // Gnosis
+        | 137      // Polygon PoS
+        | 250      // Fantom
+        | 324      // zkSync Era
+        | 8453     // Base
+        | 42161    // Arbitrum One
+        | 42170    // Arbitrum Nova
+        | 43114    // Avalanche C-Chain
+        | 59144    // Linea
+        | 534352   // Scroll
+    )
+}
+
 /// Get the seed for key derivation.
 ///
 /// Both dev-mode and production paths return the same type to prevent
@@ -213,6 +236,22 @@ fn process_sign_transaction(
     // Parse transaction
     let tx = TransactionParser::parse(&request.tx_data)
         .map_err(|_| EthAppError::InvalidTransaction)?;
+
+    // Guard: without a trusted display (autoapprove/dev-mode builds),
+    // refuse to sign on mainnet or major L2s to prevent accidental
+    // real-fund losses on displayless boards like dabao.
+    #[cfg(any(feature = "autoapprove", feature = "dev-mode"))]
+    {
+        if let Some(chain_id) = tx.chain_id {
+            if is_mainnet_chain(chain_id) {
+                log::error!(
+                    "ethapp: REFUSING to sign on chain {} in dev-mode/autoapprove build (no trusted display)",
+                    chain_id,
+                );
+                return Err(EthAppError::UnsupportedOperation);
+            }
+        }
+    }
 
     // Display transaction for user confirmation
     if !ui::display_transaction(&state.platform, &tx, false)? {

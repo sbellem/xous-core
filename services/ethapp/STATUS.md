@@ -4,6 +4,17 @@
 **Target hardware:** Baochip-1x (BAO1X2S4F-WA) running Xous OS.
 **Companion tool:** `tools/ethcli` (host-side CLI over USB CDC-ACM serial).
 
+**Board strategy decision (2026-04-20):** The current dabao development board
+has no display. A hardware wallet without a trusted display cannot provide
+hardware-wallet-grade security. Therefore:
+- **dabao**: dev-only / testnet-only. Built with `dev-mode` + `autoapprove`.
+  Firmware enforces a mainnet chain-ID guard that refuses to sign on
+  Ethereum mainnet and major L2s (chain IDs 1, 10, 56, 137, 8453, 42161,
+  etc.) to prevent accidental real-fund losses.
+- **baosec** (or equivalent display-equipped board): production target. The
+  GAM display integration (currently TODO stubs in `platform.rs`) will be
+  wired up for this board class, completing the trusted-display path.
+
 This document summarizes the current state of the Ethereum hardware-wallet
 implementation, what works, and what's required before it could safely hold
 real funds. It is intended to be honest about gaps — not a marketing piece.
