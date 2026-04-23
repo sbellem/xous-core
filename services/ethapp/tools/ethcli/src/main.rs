@@ -82,6 +82,40 @@ enum Commands {
         #[arg(long, default_value = "0")]
         index: u32,
     },
+
+    /// Build, sign, and emit a legacy (EIP-155) ETH transfer transaction.
+    /// Output is the raw signed tx hex ready to broadcast via eth_sendRawTransaction.
+    GenTx {
+        /// Recipient address (hex, with or without 0x prefix, 20 bytes)
+        to: String,
+
+        /// Value to send in wei
+        value: u128,
+
+        /// Account nonce
+        #[arg(long, default_value = "0")]
+        nonce: u64,
+
+        /// Chain ID (1=mainnet, 11155111=sepolia, 17000=holesky, ...)
+        #[arg(long, default_value = "11155111")]
+        chain_id: u64,
+
+        /// Gas price in wei
+        #[arg(long, default_value = "1000000000")]
+        gas_price: u64,
+
+        /// Gas limit
+        #[arg(long, default_value = "21000")]
+        gas_limit: u64,
+
+        /// Account index for signing
+        #[arg(long, default_value = "0")]
+        index: u32,
+
+        /// Optional hex-encoded calldata (for contract calls)
+        #[arg(long)]
+        data: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -98,6 +132,12 @@ fn main() -> Result<()> {
         Commands::ClearSeed => cmd_clear_seed(&mut transport),
         Commands::SignMessage { message, index } => cmd_sign_message(&mut transport, &message, index),
         Commands::SignTx { rlp_hex, index } => cmd_sign_tx(&mut transport, &rlp_hex, index),
+        Commands::GenTx {
+            to, value, nonce, chain_id, gas_price, gas_limit, index, data,
+        } => cmd_gen_tx(
+            &mut transport, &to, value, nonce, chain_id, gas_price, gas_limit, index,
+            data.as_deref(),
+        ),
     }
 }
 
@@ -273,5 +313,187 @@ fn print_signature(data: &[u8]) {
         println!("s={}", hex::encode(s));
     } else {
         println!("signature: {}", hex::encode(data));
+    }
+}
+
+// =============================================================================
+// gen-tx: build, sign, and emit a legacy EIP-155 transaction
+// =============================================================================
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_gen_tx(
+    t: &mut Transport,
+    to: &str,
+    value: u128,
+    nonce: u64,
+    chain_id: u64,
+    gas_price: u64,
+    gas_limit: u64,
+    index: u32,
+    data_hex: Option<&str>,
+) -> Result<()> {
+    let to_clean = to.strip_prefix("0x").unwrap_or(to);
+    let to_addr = hex::decode(to_clean)?;
+    if to_addr.len() != 20 {
+        bail!("invalid address: need 20 bytes, got {}", to_addr.len());
+    }
+
+    let calldata: Vec<u8> = match data_hex {
+        Some(h) => {
+            let h = h.strip_prefix("0x").unwrap_or(h);
+            hex::decode(h)?
+        }
+        None => Vec::new(),
+    };
+
+    let params = TxParams { nonce, gas_price, gas_limit, chain_id };
+    let unsigned = rlp_encode_legacy_unsigned(&to_addr, value, &calldata, &params);
+
+    // Build payload: [path_bytes...][rlp_unsigned_tx_bytes...]
+    let mut payload = bip44_payload(0, 0, index);
+    payload.extend_from_slice(&unsigned);
+
+    let (status, resp) = t.command(OP_SIGN_TRANSACTION, &payload)?;
+    if status != STATUS_OK {
+        bail!("sign failed (status: 0x{:02x})", status);
+    }
+    if resp.len() < 72 {
+        bail!("unexpected signature response length: {}", resp.len());
+    }
+
+    let v = u64::from_le_bytes(resp[0..8].try_into().unwrap());
+    let mut r = [0u8; 32];
+    let mut s = [0u8; 32];
+    r.copy_from_slice(&resp[8..40]);
+    s.copy_from_slice(&resp[40..72]);
+
+    let signed = rlp_encode_legacy_signed(&to_addr, value, &calldata, &params, v, &r, &s);
+
+    println!("chain: {} ({})", chain_id, chain_name(chain_id));
+    println!("to:    0x{}", to_clean);
+    println!("value: {} wei", value);
+    println!("nonce: {}  gas: {}  gasPrice: {} wei", nonce, gas_limit, gas_price);
+    if !calldata.is_empty() {
+        println!("data:  0x{}", hex::encode(&calldata));
+    }
+    println!("v={}", v);
+    println!("r={}", hex::encode(&r));
+    println!("s={}", hex::encode(&s));
+    println!("raw:   0x{}", hex::encode(&signed));
+    Ok(())
+}
+
+struct TxParams {
+    nonce: u64,
+    gas_price: u64,
+    gas_limit: u64,
+    chain_id: u64,
+}
+
+/// RLP-encode an unsigned legacy EIP-155 transaction:
+/// [nonce, gasPrice, gasLimit, to, value, data, chainId, 0, 0]
+fn rlp_encode_legacy_unsigned(to: &[u8], value: u128, data: &[u8], p: &TxParams) -> Vec<u8> {
+    let mut items = Vec::new();
+    items.extend_from_slice(&rlp_encode_u64(p.nonce));
+    items.extend_from_slice(&rlp_encode_u64(p.gas_price));
+    items.extend_from_slice(&rlp_encode_u64(p.gas_limit));
+    items.extend_from_slice(&rlp_encode_bytes(to));
+    items.extend_from_slice(&rlp_encode_u128(value));
+    items.extend_from_slice(&rlp_encode_bytes(data));
+    items.extend_from_slice(&rlp_encode_u64(p.chain_id));
+    items.extend_from_slice(&rlp_encode_u64(0));
+    items.extend_from_slice(&rlp_encode_u64(0));
+    rlp_encode_list(&items)
+}
+
+/// RLP-encode a signed legacy transaction:
+/// [nonce, gasPrice, gasLimit, to, value, data, v, r, s]
+fn rlp_encode_legacy_signed(
+    to: &[u8], value: u128, data: &[u8], p: &TxParams,
+    v: u64, r: &[u8; 32], s: &[u8; 32],
+) -> Vec<u8> {
+    let mut items = Vec::new();
+    items.extend_from_slice(&rlp_encode_u64(p.nonce));
+    items.extend_from_slice(&rlp_encode_u64(p.gas_price));
+    items.extend_from_slice(&rlp_encode_u64(p.gas_limit));
+    items.extend_from_slice(&rlp_encode_bytes(to));
+    items.extend_from_slice(&rlp_encode_u128(value));
+    items.extend_from_slice(&rlp_encode_bytes(data));
+    items.extend_from_slice(&rlp_encode_u64(v));
+    items.extend_from_slice(&rlp_encode_bytes(trim_leading_zeros(r)));
+    items.extend_from_slice(&rlp_encode_bytes(trim_leading_zeros(s)));
+    rlp_encode_list(&items)
+}
+
+fn trim_leading_zeros(bytes: &[u8]) -> &[u8] {
+    let start = bytes.iter().position(|&b| b != 0).unwrap_or(bytes.len());
+    &bytes[start..]
+}
+
+fn rlp_encode_u64(value: u64) -> Vec<u8> {
+    if value == 0 {
+        return vec![0x80];
+    }
+    let bytes = value.to_be_bytes();
+    let start = bytes.iter().position(|&b| b != 0).unwrap_or(8);
+    rlp_encode_bytes(&bytes[start..])
+}
+
+fn rlp_encode_u128(value: u128) -> Vec<u8> {
+    if value == 0 {
+        return vec![0x80];
+    }
+    let bytes = value.to_be_bytes();
+    let start = bytes.iter().position(|&b| b != 0).unwrap_or(16);
+    rlp_encode_bytes(&bytes[start..])
+}
+
+fn rlp_encode_bytes(data: &[u8]) -> Vec<u8> {
+    if data.is_empty() {
+        return vec![0x80];
+    }
+    if data.len() == 1 && data[0] < 0x80 {
+        return data.to_vec();
+    }
+    if data.len() <= 55 {
+        let mut result = vec![0x80 + data.len() as u8];
+        result.extend_from_slice(data);
+        return result;
+    }
+    let len_bytes = (data.len() as u64).to_be_bytes();
+    let start = len_bytes.iter().position(|&b| b != 0).unwrap_or(8);
+    let len_bytes = &len_bytes[start..];
+    let mut result = vec![0xb7 + len_bytes.len() as u8];
+    result.extend_from_slice(len_bytes);
+    result.extend_from_slice(data);
+    result
+}
+
+fn rlp_encode_list(items: &[u8]) -> Vec<u8> {
+    if items.len() <= 55 {
+        let mut result = vec![0xc0 + items.len() as u8];
+        result.extend_from_slice(items);
+        return result;
+    }
+    let len_bytes = (items.len() as u64).to_be_bytes();
+    let start = len_bytes.iter().position(|&b| b != 0).unwrap_or(8);
+    let len_bytes = &len_bytes[start..];
+    let mut result = vec![0xf7 + len_bytes.len() as u8];
+    result.extend_from_slice(len_bytes);
+    result.extend_from_slice(items);
+    result
+}
+
+fn chain_name(id: u64) -> &'static str {
+    match id {
+        1 => "mainnet",
+        5 => "goerli",
+        10 => "optimism",
+        56 => "bsc",
+        137 => "polygon",
+        17000 => "holesky",
+        42161 => "arbitrum",
+        11155111 => "sepolia",
+        _ => "unknown",
     }
 }
