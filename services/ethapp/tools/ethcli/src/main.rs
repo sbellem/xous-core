@@ -109,6 +109,26 @@ enum Commands {
         data: Option<String>,
     },
 
+    /// Broadcast a pre-signed transaction (eth_sendRawTransaction).
+    /// Equivalent to foundry's `cast publish`. Does NOT touch the device.
+    #[command(alias = "broadcast")]
+    Publish {
+        /// Hex-encoded signed transaction (with or without 0x prefix)
+        signed_tx_hex: String,
+
+        /// JSON-RPC URL
+        #[arg(long)]
+        rpc_url: String,
+
+        /// Poll until the tx is mined and print the receipt
+        #[arg(long)]
+        wait: bool,
+
+        /// How long to poll before giving up (seconds)
+        #[arg(long, default_value = "120")]
+        wait_timeout: u64,
+    },
+
     /// Build (only) the unsigned RLP for a legacy EIP-155 transaction.
     /// Does NOT touch the device — useful for offline workflows where you
     /// build the tx on one machine and sign it elsewhere with `sign-tx`.
@@ -179,13 +199,18 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Offline commands: handle before opening the device.
-    if let Commands::BuildTx {
-        to, value, nonce, chain_id, gas_price, gas_limit, data,
-    } = &cli.command
-    {
-        return cmd_build_tx(
-            to, *value, *nonce, *chain_id, *gas_price, *gas_limit, data.as_deref(),
-        );
+    match &cli.command {
+        Commands::BuildTx {
+            to, value, nonce, chain_id, gas_price, gas_limit, data,
+        } => {
+            return cmd_build_tx(
+                to, *value, *nonce, *chain_id, *gas_price, *gas_limit, data.as_deref(),
+            );
+        }
+        Commands::Publish { signed_tx_hex, rpc_url, wait, wait_timeout } => {
+            return cmd_publish(signed_tx_hex, rpc_url, *wait, *wait_timeout);
+        }
+        _ => {}
     }
 
     let mut transport = Transport::open(cli.port.as_deref())?;
@@ -209,7 +234,7 @@ fn main() -> Result<()> {
         Commands::TxInfo { rpc_url, index, to, value, data } => cmd_tx_info(
             &mut transport, &rpc_url, index, to.as_deref(), value, data.as_deref(),
         ),
-        Commands::BuildTx { .. } => unreachable!("handled above"),
+        Commands::BuildTx { .. } | Commands::Publish { .. } => unreachable!("handled above"),
     }
 }
 
@@ -669,6 +694,60 @@ fn format_eth(wei: u128) -> String {
 
 fn format_gwei(wei: u128) -> String {
     format!("{:.3} gwei", wei as f64 / 1e9)
+}
+
+// =============================================================================
+// publish: broadcast a signed tx via eth_sendRawTransaction
+// =============================================================================
+
+fn cmd_publish(signed_tx_hex: &str, rpc_url: &str, wait: bool, wait_timeout: u64) -> Result<()> {
+    let hex_str = signed_tx_hex.strip_prefix("0x").unwrap_or(signed_tx_hex);
+    let signed = hex::decode(hex_str)?;
+    if signed.is_empty() {
+        bail!("empty signed tx");
+    }
+
+    let mut rpc = rpc::RpcClient::new(rpc_url);
+    let tx_hash = rpc.send_raw_transaction(&signed)?;
+    println!("tx hash: {}", tx_hash);
+
+    if !wait {
+        return Ok(());
+    }
+
+    println!("waiting for inclusion (timeout: {}s)...", wait_timeout);
+    let start = std::time::Instant::now();
+    let poll_interval = std::time::Duration::from_secs(3);
+    loop {
+        if start.elapsed().as_secs() > wait_timeout {
+            bail!("timeout waiting for tx receipt");
+        }
+        match rpc.get_transaction_receipt(&tx_hash)? {
+            Some(receipt) => {
+                let block = receipt.get("blockNumber")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let status = receipt.get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let gas_used = receipt.get("gasUsed")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let status_label = match status {
+                    "0x1" => "success",
+                    "0x0" => "REVERTED",
+                    _ => status,
+                };
+                println!("included in block {}", block);
+                println!("status:    {}", status_label);
+                println!("gas used:  {}", gas_used);
+                return Ok(());
+            }
+            None => {
+                std::thread::sleep(poll_interval);
+            }
+        }
+    }
 }
 
 // =============================================================================

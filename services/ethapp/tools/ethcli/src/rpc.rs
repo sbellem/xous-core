@@ -93,6 +93,25 @@ impl RpcClient {
         parse_hex_u64(&v)
     }
 
+    /// Broadcast a signed transaction. Returns the transaction hash.
+    pub fn send_raw_transaction(&mut self, signed_tx: &[u8]) -> Result<String> {
+        let hex_tx = format!("0x{}", hex::encode(signed_tx));
+        let v = self.call("eth_sendRawTransaction", json!([hex_tx]))?;
+        v.as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow!("expected hex tx hash, got {:?}", v))
+    }
+
+    /// Get a transaction receipt. Returns None if the tx isn't mined yet.
+    pub fn get_transaction_receipt(&mut self, tx_hash: &str) -> Result<Option<Value>> {
+        let v = self.call("eth_getTransactionReceipt", json!([tx_hash]))?;
+        if v.is_null() {
+            Ok(None)
+        } else {
+            Ok(Some(v))
+        }
+    }
+
     /// EIP-1559 fee suggestion via eth_feeHistory.
     /// Returns Some((priority_fee_per_gas, base_fee_for_next_block)) if the
     /// chain supports EIP-1559, None otherwise.
