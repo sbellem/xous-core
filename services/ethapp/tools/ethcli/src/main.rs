@@ -318,7 +318,10 @@ fn cmd_generate_mnemonic(t: &mut Transport) -> Result<()> {
         let words: Vec<&str> = mnemonic.split_whitespace().collect();
         println!();
         println!("╔══════════════════════════════════════════════════════════════╗");
-        println!("║  BACKUP YOUR RECOVERY PHRASE                                ║");
+        println!("║  DEVELOPER MODE — RECOVERY PHRASE SHOWN ON HOST             ║");
+        println!("║  This is INSECURE. On production hardware, the phrase       ║");
+        println!("║  is shown only on the device's secure display.              ║");
+        println!("║                                                              ║");
         println!("║  Write these words down on paper. Store securely.           ║");
         println!("║  This is the ONLY way to recover your wallet.               ║");
         println!("╚══════════════════════════════════════════════════════════════╝");
