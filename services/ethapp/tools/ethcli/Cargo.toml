@@ -13,8 +13,8 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-# Disable default features to avoid libudev system dep on Linux.
-# Auto-detect by USB VID/PID is unavailable; user must pass --port.
-serialport = { version = "4", default-features = false }
+# Default features include libudev on Linux for USB VID/PID auto-detect.
+# The flake.nix dev shells provide pkg-config + systemd (libudev) on Linux.
+serialport = "4"
 hex = "0.4"
 anyhow = "1"

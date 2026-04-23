@@ -231,6 +231,13 @@
               extensions = [ "rustfmt" ];
             }
           );
+
+          # Host-tool deps (e.g. for ethcli). On Linux serialport needs libudev
+          # via pkg-config; on macOS it uses IOKit and needs nothing extra.
+          hostToolDeps =
+            if pkgs.stdenv.isLinux
+            then [ pkgs.pkg-config pkgs.systemd ]
+            else [ ];
         in
         {
           packages = {
@@ -267,7 +274,7 @@
 
           devShells = {
             default = pkgs.mkShell {
-              packages = [ pkgs.rustToolchainXous vendorSetup ];
+              packages = [ pkgs.rustToolchainXous vendorSetup ] ++ hostToolDeps;
               shellHook = ''
                 # Generate vendor config for offline builds
                 xous-vendor-setup
@@ -301,7 +308,7 @@
 
           # For containerized / sandboxed environments without git tags
           container = pkgs.mkShell {
-            packages = [ pkgs.rustToolchainXous vendorSetup xousBuild ];
+            packages = [ pkgs.rustToolchainXous vendorSetup xousBuild ] ++ hostToolDeps;
             env = {
               XOUS_VERSION = xousVersion;
               GIT_REV = gitRevFull;
