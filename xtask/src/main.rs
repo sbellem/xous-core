@@ -379,6 +379,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // for unattended testing in the emulator. Remove for production builds.
                 .add_feature("ethapp/dev-mode")
                 .add_feature("ethapp/autoapprove");
+                // NOTE: ethapp/pddb not available on dabao (no SPI flash)
 
             unsafe {
                 std::env::set_var("UUID", "1234567812345678123456781234567812345678123456781234567812345678");
@@ -859,6 +860,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // TODO: remove dev-mode and autoapprove for production builds
             builder.add_feature("ethapp/dev-mode");
             builder.add_feature("ethapp/autoapprove");
+            // NOTE: ethapp/pddb cannot be enabled on dabao — it lacks external
+            // SPI flash required by PDDB. Seed is in-memory only (lost on reboot).
+            // PDDB will be available on baosec and other flash-equipped boards.
             match task.as_deref() {
                 Some("dabao") => builder.target_bao1x_soc(),
                 _ => panic!("should be unreachable"),
