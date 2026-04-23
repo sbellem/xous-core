@@ -102,6 +102,6 @@ tools-bao/.venv/
 .zig-cache/
 zig-out/
 
-# Nix-generated vendor config (developer-specific nix store paths)
+# Vendor config (generated for guix / nix)
 .cargo/vendor-config.toml
-locales/.cargo/vendor-config.toml
+.cargo/vendor.gcroot
