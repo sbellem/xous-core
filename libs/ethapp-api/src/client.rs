@@ -148,6 +148,16 @@ impl EthAppClient {
         self.send_blocking_scalar(EthAppOp::ClearSeed)
     }
 
+    /// DANGEROUS: enable mainnet signing on displayless dev builds.
+    ///
+    /// This bypasses the mainnet chain-ID guard that protects against
+    /// signing real-value transactions without a trusted display.
+    /// Session-only — resets on reboot. No-op on production builds.
+    pub fn enable_dangerous_mainnet(&self) -> Result<(), ApiError> {
+        self.send_scalar(EthAppOp::EnableDangerousMainnet)?;
+        Ok(())
+    }
+
     // =========================================================================
     // Key Management
     // =========================================================================

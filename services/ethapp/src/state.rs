@@ -43,6 +43,12 @@ pub struct ServiceState {
     /// Imported seed (set at runtime via SetSeed opcode).
     pub imported_seed: Option<crate::crypto::Seed>,
 
+    /// DANGEROUS: when true, allows signing on mainnet chains even on
+    /// displayless dev-mode/autoapprove builds. Must be explicitly
+    /// enabled per session via the EnableDangerousMainnet opcode.
+    /// Resets to false on service restart.
+    pub dangerous_mainnet: bool,
+
     /// Cached token information (key: chain_id:address).
     token_cache: BTreeMap<(u64, EthAddress), TokenInfo>,
 
@@ -83,6 +89,7 @@ impl ServiceState {
             #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
             platform: MockPlatform::new(),
             imported_seed: None,
+            dangerous_mainnet: false,
             config: AppConfiguration {
                 version_major: 0,
                 version_minor: 1,

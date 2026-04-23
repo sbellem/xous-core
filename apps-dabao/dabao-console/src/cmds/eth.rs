@@ -37,7 +37,7 @@ impl<'a> ShellCmdApi<'a> for Eth {
         use core::fmt::Write;
         let mut ret = String::new();
 
-        let helpstring = "eth [ping|config|address|accounts|signmsg|sign|gentx|seedimport|mnimport|mngenerate|clearseed]";
+        let helpstring = "eth [ping|config|address|accounts|signmsg|sign|gentx|seedimport|mnimport|mngenerate|clearseed|dangerous]";
 
         let mut parts = args.split_whitespace();
         let cmd = parts.next().unwrap_or("").to_string();
@@ -261,6 +261,19 @@ impl<'a> ShellCmdApi<'a> for Eth {
                 match client.clear_seed() {
                     Ok(()) => write!(ret, "seed cleared").unwrap(),
                     Err(e) => write!(ret, "clearseed failed: {:?}", e).unwrap(),
+                }
+            }
+            "dangerous" => {
+                let client = self.client()?;
+                match client.enable_dangerous_mainnet() {
+                    Ok(()) => {
+                        write!(ret, "*** WARNING: DANGEROUS MAINNET MODE ENABLED ***\n").unwrap();
+                        write!(ret, "This device has NO trusted display.\n").unwrap();
+                        write!(ret, "Mainnet signing is now permitted for this session.\n").unwrap();
+                        write!(ret, "YOU are responsible for verifying every transaction.\n").unwrap();
+                        write!(ret, "The host software is UNTRUSTED. Resets on reboot.").unwrap();
+                    }
+                    Err(e) => write!(ret, "dangerous mode failed: {:?}", e).unwrap(),
                 }
             }
             "mnimport" => {

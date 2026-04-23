@@ -173,6 +173,9 @@ fn handle_message(
         EthAppOp::ClearSeed => {
             handlers::handle_clear_seed(state, msg)?;
         }
+        EthAppOp::EnableDangerousMainnet => {
+            handlers::handle_enable_dangerous_mainnet(state, msg)?;
+        }
 
         // === Serial Transport ===
         EthAppOp::SerialFrame => {

@@ -127,6 +127,12 @@ pub enum EthAppOp {
     /// Returns: success or error via scalar.
     ClearSeed = 0x63,
 
+    /// DANGEROUS: enable mainnet signing on displayless dev builds.
+    /// This is a session-only flag (resets on reboot). Only effective
+    /// when autoapprove or dev-mode features are compiled in.
+    /// Returns: success via scalar.
+    EnableDangerousMainnet = 0x64,
+
     // === Serial Transport (0x70-0x7F) ===
 
     /// Process a raw serial frame from the host CLI.
@@ -252,6 +258,7 @@ mod tests {
             EthAppOp::GetPublicKey, EthAppOp::GetAddress,
             EthAppOp::SetSeed, EthAppOp::ImportMnemonic,
             EthAppOp::GenerateMnemonic, EthAppOp::ClearSeed,
+            EthAppOp::EnableDangerousMainnet,
             EthAppOp::SerialFrame,
             EthAppOp::ClearMetadataCache, EthAppOp::GetStats, EthAppOp::Ping,
         ];

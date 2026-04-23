@@ -19,6 +19,7 @@ const OP_GET_ADDRESS: u8 = 0x51;
 const OP_GENERATE_MNEMONIC: u8 = 0x62;
 const OP_IMPORT_MNEMONIC: u8 = 0x61;
 const OP_CLEAR_SEED: u8 = 0x63;
+const OP_ENABLE_DANGEROUS_MAINNET: u8 = 0x64;
 const OP_SIGN_PERSONAL_MESSAGE: u8 = 0x20;
 const OP_SIGN_TRANSACTION: u8 = 0x10;
 
@@ -63,6 +64,11 @@ enum Commands {
 
     /// Wipe the master seed
     ClearSeed,
+
+    /// DANGEROUS: enable mainnet signing on a displayless device.
+    /// Session-only (resets on reboot). You assume all risk.
+    #[command(alias = "yolo")]
+    DangerousMode,
 
     /// Sign an EIP-191 personal message
     SignMessage {
@@ -223,6 +229,7 @@ fn main() -> Result<()> {
         Commands::GenerateMnemonic => cmd_generate_mnemonic(&mut transport),
         Commands::ImportMnemonic => cmd_import_mnemonic(&mut transport),
         Commands::ClearSeed => cmd_clear_seed(&mut transport),
+        Commands::DangerousMode => cmd_dangerous_mode(&mut transport),
         Commands::SignMessage { message, index } => cmd_sign_message(&mut transport, &message, index),
         Commands::SignTx { rlp_hex, index } => cmd_sign_tx(&mut transport, &rlp_hex, index),
         Commands::GenTx {
@@ -348,6 +355,36 @@ fn cmd_clear_seed(t: &mut Transport) -> Result<()> {
         println!("Seed cleared.");
     } else {
         bail!("clear-seed failed (status: 0x{:02x})", status);
+    }
+    Ok(())
+}
+
+fn cmd_dangerous_mode(t: &mut Transport) -> Result<()> {
+    eprintln!("╔══════════════════════════════════════════════════════════════╗");
+    eprintln!("║  WARNING: ENABLING DANGEROUS MAINNET MODE                   ║");
+    eprintln!("║                                                              ║");
+    eprintln!("║  This device has NO trusted display.                         ║");
+    eprintln!("║  You CANNOT verify what you are signing on the device.       ║");
+    eprintln!("║  A compromised host can steal ALL your funds.                ║");
+    eprintln!("║                                                              ║");
+    eprintln!("║  By proceeding you accept FULL responsibility for losses.    ║");
+    eprintln!("║  This mode resets on device reboot.                          ║");
+    eprintln!("╚══════════════════════════════════════════════════════════════╝");
+    eprint!("Type 'I ACCEPT THE RISK' to continue: ");
+    io::stderr().flush()?;
+
+    let stdin = io::stdin();
+    let line = stdin.lock().lines().next()
+        .ok_or_else(|| anyhow::anyhow!("No input"))??;
+    if line.trim() != "I ACCEPT THE RISK" {
+        bail!("Aborted. You must type exactly: I ACCEPT THE RISK");
+    }
+
+    let (status, _) = t.command(OP_ENABLE_DANGEROUS_MAINNET, &[])?;
+    if status == STATUS_OK {
+        eprintln!("Dangerous mainnet mode ENABLED for this session.");
+    } else {
+        bail!("failed (status: 0x{:02x})", status);
     }
     Ok(())
 }

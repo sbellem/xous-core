@@ -243,9 +243,10 @@ fn process_sign_transaction(
     #[cfg(any(feature = "autoapprove", feature = "dev-mode"))]
     {
         if let Some(chain_id) = tx.chain_id {
-            if is_mainnet_chain(chain_id) {
+            if is_mainnet_chain(chain_id) && !state.dangerous_mainnet {
                 log::error!(
-                    "ethapp: REFUSING to sign on chain {} in dev-mode/autoapprove build (no trusted display)",
+                    "ethapp: REFUSING to sign on chain {} in dev-mode/autoapprove build (no trusted display). \
+                     Use EnableDangerousMainnet to override at your own risk.",
                     chain_id,
                 );
                 return Err(EthAppError::UnsupportedOperation);
@@ -1030,6 +1031,38 @@ fn process_clear_seed(state: &mut ServiceState) -> Result<(), EthAppError> {
 }
 
 // =============================================================================
+// Dangerous Mainnet Handler
+// =============================================================================
+
+/// Handle EnableDangerousMainnet — allow mainnet signing on displayless builds.
+///
+/// This is a session-only flag that resets on reboot. Only meaningful when
+/// the `autoapprove` or `dev-mode` features are compiled in; on production
+/// builds the mainnet guard doesn't exist so this is a no-op.
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+pub fn handle_enable_dangerous_mainnet(
+    state: &mut ServiceState,
+    msg: xous::MessageEnvelope,
+) -> Result<(), EthAppError> {
+    state.dangerous_mainnet = true;
+    log::warn!("ethapp: *** DANGEROUS MAINNET MODE ENABLED ***");
+    log::warn!("ethapp: This device has NO trusted display. Signing on mainnet");
+    log::warn!("ethapp: chains is now permitted. YOU are responsible for verifying");
+    log::warn!("ethapp: every transaction. The host software is UNTRUSTED.");
+    log::warn!("ethapp: This mode resets on reboot.");
+    return_success(msg)
+}
+
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
+pub fn handle_enable_dangerous_mainnet(
+    state: &mut ServiceState,
+    _msg: (),
+) -> Result<(), EthAppError> {
+    state.dangerous_mainnet = true;
+    Ok(())
+}
+
+// =============================================================================
 // Serial Frame Handler
 // =============================================================================
 
@@ -1127,6 +1160,13 @@ fn process_serial_command(
                 Ok(()) => vec![STATUS_OK],
                 Err(e) => vec![error_to_status(&e)],
             }
+        }
+
+        // EnableDangerousMainnet
+        0x64 => {
+            state.dangerous_mainnet = true;
+            log::warn!("ethapp: *** DANGEROUS MAINNET MODE ENABLED via serial ***");
+            vec![STATUS_OK]
         }
 
         // ImportMnemonic
