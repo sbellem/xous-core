@@ -109,6 +109,37 @@ enum Commands {
         data: Option<String>,
     },
 
+    /// Build (only) the unsigned RLP for a legacy EIP-155 transaction.
+    /// Does NOT touch the device — useful for offline workflows where you
+    /// build the tx on one machine and sign it elsewhere with `sign-tx`.
+    BuildTx {
+        /// Recipient address (hex, with or without 0x prefix, 20 bytes)
+        to: String,
+
+        /// Value to send in wei
+        value: u128,
+
+        /// Account nonce
+        #[arg(long, default_value = "0")]
+        nonce: u64,
+
+        /// Chain ID (1=mainnet, 11155111=sepolia, 17000=holesky, ...)
+        #[arg(long, default_value = "11155111")]
+        chain_id: u64,
+
+        /// Gas price in wei
+        #[arg(long, default_value = "1000000000")]
+        gas_price: u64,
+
+        /// Gas limit
+        #[arg(long, default_value = "21000")]
+        gas_limit: u64,
+
+        /// Optional hex-encoded calldata (for contract calls)
+        #[arg(long)]
+        data: Option<String>,
+    },
+
     /// Build, sign, and emit a legacy (EIP-155) ETH transfer transaction.
     /// Output is the raw signed tx hex ready to broadcast via eth_sendRawTransaction.
     GenTx {
@@ -146,6 +177,17 @@ enum Commands {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // Offline commands: handle before opening the device.
+    if let Commands::BuildTx {
+        to, value, nonce, chain_id, gas_price, gas_limit, data,
+    } = &cli.command
+    {
+        return cmd_build_tx(
+            to, *value, *nonce, *chain_id, *gas_price, *gas_limit, data.as_deref(),
+        );
+    }
+
     let mut transport = Transport::open(cli.port.as_deref())?;
 
     match cli.command {
@@ -167,6 +209,7 @@ fn main() -> Result<()> {
         Commands::TxInfo { rpc_url, index, to, value, data } => cmd_tx_info(
             &mut transport, &rpc_url, index, to.as_deref(), value, data.as_deref(),
         ),
+        Commands::BuildTx { .. } => unreachable!("handled above"),
     }
 }
 
@@ -626,6 +669,47 @@ fn format_eth(wei: u128) -> String {
 
 fn format_gwei(wei: u128) -> String {
     format!("{:.3} gwei", wei as f64 / 1e9)
+}
+
+// =============================================================================
+// build-tx: produce the unsigned RLP without touching the device
+// =============================================================================
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_build_tx(
+    to: &str,
+    value: u128,
+    nonce: u64,
+    chain_id: u64,
+    gas_price: u64,
+    gas_limit: u64,
+    data_hex: Option<&str>,
+) -> Result<()> {
+    let to_clean = to.strip_prefix("0x").unwrap_or(to);
+    let to_addr = hex::decode(to_clean)?;
+    if to_addr.len() != 20 {
+        bail!("invalid address: need 20 bytes, got {}", to_addr.len());
+    }
+
+    let calldata: Vec<u8> = match data_hex {
+        Some(h) => hex::decode(h.strip_prefix("0x").unwrap_or(h))?,
+        None => Vec::new(),
+    };
+
+    let params = TxParams { nonce, gas_price, gas_limit, chain_id };
+    let unsigned = rlp_encode_legacy_unsigned(&to_addr, value, &calldata, &params);
+
+    println!("chain:    {} ({})", chain_id, chain_name(chain_id));
+    println!("to:       0x{}", to_clean);
+    println!("value:    {} wei", value);
+    println!("nonce:    {}  gas: {}  gasPrice: {} wei", nonce, gas_limit, gas_price);
+    if !calldata.is_empty() {
+        println!("data:     0x{}", hex::encode(&calldata));
+    }
+    println!("unsigned: 0x{}", hex::encode(&unsigned));
+    println!();
+    println!("To sign and broadcast: ethcli sign-tx 0x{}", hex::encode(&unsigned));
+    Ok(())
 }
 
 // =============================================================================
