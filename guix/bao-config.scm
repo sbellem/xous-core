@@ -9,7 +9,7 @@
   #:use-module (guix utils)
   #:use-module (ice-9 popen)
   #:use-module (ice-9 rdelim)
-  #:export (%xous-source %xous-git-describe %xous-commit))
+  #:export (%xous-source %xous-git-describe %xous-commit %repo-root))
 
 ;;; Determine the directory containing this module (guix/).
 ;;; Falls back to searching %load-path when current-source-directory is

@@ -37,7 +37,7 @@
     (name "ethcli")
     (version %xous-git-describe)
     (source
-     (local-file (string-append (dirname (current-source-directory))
+     (local-file (string-append %repo-root
                                 "/services/ethapp/tools/ethcli")
                  #:recursive? #t
                  #:select? (lambda (file stat)
