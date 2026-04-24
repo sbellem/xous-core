@@ -36,6 +36,7 @@
     ("bao1x-alt-boot1" . "bao1x-boot1")
     ("bao1x-baremetal-dabao" . "bao1x-baremetal-dabao")
     ("dabao" . "dabao")
+    ("dabao-ethapp" . "dabao")
     ("baosec" . "baosec")))
 
 ;;; Git dependency record type
@@ -530,6 +531,12 @@
                        "dabao helloworld"
                        #:target-dir "riscv32imac-unknown-xous-elf"
                        #:crate-inputs (lookup-cargo-inputs 'dabao-helloworld)))
+
+(define-public dabao-ethapp
+  (make-firmware-build "dabao-ethapp"
+                       "dabao ethapp-test"
+                       #:target-dir "riscv32imac-unknown-xous-elf"
+                       #:crate-inputs (lookup-cargo-inputs 'dabao-ethapp)))
 
 (define-public baosec
   (make-firmware-build "baosec"

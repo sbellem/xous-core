@@ -67,7 +67,7 @@ VENDOR_CFG      := ../.cargo/vendor-config.toml
 .PHONY: help shell \
         rv32imac-none rv32imac-xous toolchain \
         boot0 boot1 alt-boot1 bootloader baremetal-dabao \
-        dabao dabao-helloworld baosec firmware \
+        dabao dabao-helloworld dabao-ethapp baosec firmware ethcli \
         rustfilt boot0-elf-analysis boot1-elf-analysis \
         alt-boot1-elf-analysis baremetal-dabao-elf-analysis \
         dabao-elf-analysis baosec-elf-analysis \
@@ -84,7 +84,9 @@ help:
 	@echo "    toolchain          - rust-xous-toolchain (both sysroots)"
 	@echo "  Firmware:"
 	@echo "    boot0 boot1 alt-boot1 baremetal-dabao"
-	@echo "    dabao dabao-helloworld baosec"
+	@echo "    dabao dabao-helloworld dabao-ethapp baosec"
+	@echo "  Host tools:"
+	@echo "    ethcli             - Ethereum wallet CLI (host binary)"
 	@echo "    bootloader         - all bootloaders (boot0 + boot1 + alt-boot1)"
 	@echo "    firmware           - all firmware (via manifest)"
 	@echo "  Offline development:"
@@ -145,6 +147,12 @@ dabao:
 
 dabao-helloworld:
 	$(TM) -e '(@ (bao) dabao-helloworld)'
+
+dabao-ethapp:
+	$(TM) -e '(@ (bao) dabao-ethapp)'
+
+ethcli:
+	$(TM) -e '(@ (ethcli) ethcli)'
 
 baosec:
 	$(TM) -e '(@ (bao) baosec)'

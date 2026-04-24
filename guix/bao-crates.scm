@@ -3328,4 +3328,5 @@
                      (bao1x-baremetal-dabao => %bao-crate-inputs)
                      (dabao => %bao-crate-inputs)
                      (dabao-helloworld => %bao-crate-inputs)
+                     (dabao-ethapp => %bao-crate-inputs)
                      (baosec => %bao-crate-inputs))
