@@ -14,19 +14,74 @@
 use std::string::String;
 use std::vec::Vec;
 
-use ethapp_common::{EthAppError, Hash256, TransactionType};
+use ethapp_common::{EthAddress, EthAppError, Hash256, TokenInfo, TransactionType};
 use crate::crypto::format_address_checksummed;
 use crate::parsing::ParsedTransaction;
 use crate::platform::Platform;
 
+// =============================================================================
+// ERC-20 calldata decoding
+// =============================================================================
+
+/// ERC-20 transfer(address,uint256) selector.
+const TRANSFER_SELECTOR: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
+/// ERC-20 approve(address,uint256) selector.
+const APPROVE_SELECTOR: [u8; 4] = [0x09, 0x5e, 0xa7, 0xb3];
+
+/// Decoded ERC-20 call information.
+struct Erc20CallInfo {
+    /// Method name for display.
+    method: &'static str,
+    /// Recipient (transfer) or spender (approve) address.
+    target: EthAddress,
+    /// Raw uint256 amount (32 bytes, big-endian).
+    amount: [u8; 32],
+}
+
+/// Try to decode transaction data as an ERC-20 transfer() or approve() call.
+///
+/// Returns None if the data doesn't match the expected format:
+/// - Exactly 68 bytes (4 selector + 32 address + 32 amount)
+/// - Known selector
+/// - Address argument has 12 zero-padding bytes
+fn try_decode_erc20(data: &[u8]) -> Option<Erc20CallInfo> {
+    if data.len() != 68 {
+        return None;
+    }
+
+    let method = if data[..4] == TRANSFER_SELECTOR {
+        "Transfer"
+    } else if data[..4] == APPROVE_SELECTOR {
+        "Approve"
+    } else {
+        return None;
+    };
+
+    // Validate that the address argument has 12 zero-padding bytes
+    if data[4..16] != [0u8; 12] {
+        return None;
+    }
+
+    let mut target = [0u8; 20];
+    target.copy_from_slice(&data[16..36]);
+
+    let mut amount = [0u8; 32];
+    amount.copy_from_slice(&data[36..68]);
+
+    Some(Erc20CallInfo { method, target, amount })
+}
+
 /// Display a transaction for user review.
 ///
 /// Shows all relevant transaction fields and waits for user approval.
+/// When `token_info` is provided and the calldata matches a known ERC-20
+/// method, displays a human-readable clear-signed view.
 ///
 /// # Arguments
 /// * `platform` - Platform abstraction for UI
 /// * `tx` - Parsed transaction to display
-/// * `clear_sign` - Whether this is a clear signing request
+/// * `_clear_sign` - Whether this is a clear signing request
+/// * `token_info` - Optional cached token metadata for display
 ///
 /// # Returns
 /// - `Ok(true)` if user approved
@@ -36,6 +91,7 @@ pub fn display_transaction<P: Platform>(
     platform: &P,
     tx: &ParsedTransaction,
     _clear_sign: bool,
+    token_info: Option<&TokenInfo>,
 ) -> Result<bool, EthAppError> {
     // Auto-approve for testing
     #[cfg(feature = "autoapprove")]
@@ -45,46 +101,81 @@ pub fn display_transaction<P: Platform>(
 
     #[cfg(not(feature = "autoapprove"))]
     {
-        let tx_type_str = match tx.tx_type {
-            TransactionType::Legacy => "Legacy",
-            TransactionType::AccessList => "EIP-2930",
-            TransactionType::FeeMarket => "EIP-1559",
-        };
-
-        let recipient = match &tx.to {
-            Some(addr) => {
-                let checksummed = format_address_checksummed(addr);
-                String::from_utf8_lossy(&checksummed).into_owned()
-            }
-            None => String::from("Contract Creation"),
-        };
-
-        let value_str = format_eth_amount(&tx.value);
         let gas_str = format!("{}", tx.gas_limit);
         let gas_price_str = format_gas_price(&tx.gas_price);
-
-        let data_str = if tx.data.is_empty() {
-            String::from("(none)")
-        } else if tx.data.len() > 32 {
-            format!("{} bytes", tx.data.len())
-        } else {
-            hex::encode(&tx.data)
-        };
 
         let chain_str = tx
             .chain_id
             .map(|c| format!("{}", c))
             .unwrap_or_else(|| String::from("(none)"));
 
-        let mut fields: Vec<(&str, String)> = vec![
-            ("Type", tx_type_str.to_string()),
-            ("Chain ID", chain_str),
-            ("To", recipient),
-            ("Value", value_str),
-            ("Gas Limit", gas_str),
-            ("Gas Price", gas_price_str),
-            ("Data", data_str),
-        ];
+        // Try clear signing for ERC-20 calls
+        let mut fields: Vec<(&str, String)> = if let Some(erc20) = try_decode_erc20(&tx.data) {
+            let (ticker, decimals) = match token_info {
+                Some(ti) => (ti.ticker.as_str(), ti.decimals),
+                None => ("???", 18),
+            };
+
+            let amount_str = format_token_amount(&erc20.amount, decimals, ticker);
+
+            let target_checksummed = format_address_checksummed(&erc20.target);
+            let target_str = String::from_utf8_lossy(&target_checksummed).into_owned();
+
+            let contract_str = match &tx.to {
+                Some(addr) => {
+                    let checksummed = format_address_checksummed(addr);
+                    String::from_utf8_lossy(&checksummed).into_owned()
+                }
+                None => String::from("(unknown)"),
+            };
+
+            let target_label = if erc20.method == "Transfer" { "To" } else { "Spender" };
+
+            vec![
+                ("Type", format!("ERC-20 {}", erc20.method)),
+                ("Chain ID", chain_str),
+                ("Token", contract_str),
+                (target_label, target_str),
+                ("Amount", amount_str),
+                ("Gas Limit", gas_str),
+                ("Gas Price", gas_price_str),
+            ]
+        } else {
+            // Standard transaction display
+            let tx_type_str = match tx.tx_type {
+                TransactionType::Legacy => "Legacy",
+                TransactionType::AccessList => "EIP-2930",
+                TransactionType::FeeMarket => "EIP-1559",
+            };
+
+            let recipient = match &tx.to {
+                Some(addr) => {
+                    let checksummed = format_address_checksummed(addr);
+                    String::from_utf8_lossy(&checksummed).into_owned()
+                }
+                None => String::from("Contract Creation"),
+            };
+
+            let value_str = format_eth_amount(&tx.value);
+
+            let data_str = if tx.data.is_empty() {
+                String::from("(none)")
+            } else if tx.data.len() > 32 {
+                format!("{} bytes", tx.data.len())
+            } else {
+                hex::encode(&tx.data)
+            };
+
+            vec![
+                ("Type", tx_type_str.to_string()),
+                ("Chain ID", chain_str),
+                ("To", recipient),
+                ("Value", value_str),
+                ("Gas Limit", gas_str),
+                ("Gas Price", gas_price_str),
+                ("Data", data_str),
+            ]
+        };
 
         // Add max priority fee for EIP-1559
         if let Some(priority_fee) = &tx.max_priority_fee {
@@ -318,5 +409,64 @@ mod tests {
     fn test_truncate_for_display() {
         assert_eq!(truncate_for_display("short", 10), "short");
         assert_eq!(truncate_for_display("this is a long string", 10), "this is a ...");
+    }
+
+    // =========================================================================
+    // ERC-20 calldata decoding tests
+    // =========================================================================
+
+    #[test]
+    fn test_decode_erc20_transfer() {
+        let recipient = [0xde; 20];
+        let mut data = Vec::new();
+        data.extend_from_slice(&TRANSFER_SELECTOR);
+        data.extend_from_slice(&[0u8; 12]); // padding
+        data.extend_from_slice(&recipient);
+        data.extend_from_slice(&[0u8; 16]); // upper amount
+        data.extend_from_slice(&1_000_000u128.to_be_bytes()); // lower amount
+
+        let info = try_decode_erc20(&data).unwrap();
+        assert_eq!(info.method, "Transfer");
+        assert_eq!(info.target, recipient);
+    }
+
+    #[test]
+    fn test_decode_erc20_approve() {
+        let spender = [0xab; 20];
+        let mut data = Vec::new();
+        data.extend_from_slice(&APPROVE_SELECTOR);
+        data.extend_from_slice(&[0u8; 12]);
+        data.extend_from_slice(&spender);
+        data.extend_from_slice(&[0xff; 32]); // max approval
+
+        let info = try_decode_erc20(&data).unwrap();
+        assert_eq!(info.method, "Approve");
+        assert_eq!(info.target, spender);
+    }
+
+    #[test]
+    fn test_decode_erc20_wrong_length() {
+        assert!(try_decode_erc20(&[0xa9, 0x05, 0x9c, 0xbb]).is_none());
+        assert!(try_decode_erc20(&[0; 100]).is_none());
+        assert!(try_decode_erc20(&[]).is_none());
+    }
+
+    #[test]
+    fn test_decode_erc20_unknown_selector() {
+        let mut data = [0u8; 68];
+        data[0..4].copy_from_slice(&[0xde, 0xad, 0xbe, 0xef]);
+        assert!(try_decode_erc20(&data).is_none());
+    }
+
+    #[test]
+    fn test_decode_erc20_nonzero_padding() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&TRANSFER_SELECTOR);
+        data.extend_from_slice(&[0u8; 11]);
+        data.push(0x01); // non-zero padding byte
+        data.extend_from_slice(&[0xde; 20]);
+        data.extend_from_slice(&[0u8; 32]);
+
+        assert!(try_decode_erc20(&data).is_none());
     }
 }

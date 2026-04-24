@@ -93,6 +93,19 @@ impl RpcClient {
         parse_hex_u64(&v)
     }
 
+    /// Execute a read-only contract call (eth_call). Returns the raw result bytes.
+    pub fn eth_call(&mut self, to: &str, data: &[u8]) -> Result<Vec<u8>> {
+        let mut tx = serde_json::Map::new();
+        tx.insert("to".into(), json!(to));
+        tx.insert("data".into(), json!(format!("0x{}", hex::encode(data))));
+        let v = self.call("eth_call", json!([Value::Object(tx), "latest"]))?;
+        let s = v
+            .as_str()
+            .ok_or_else(|| anyhow!("expected hex string from eth_call, got {:?}", v))?;
+        let s = s.strip_prefix("0x").unwrap_or(s);
+        Ok(hex::decode(s).context("decode eth_call result")?)
+    }
+
     /// Broadcast a signed transaction. Returns the transaction hash.
     pub fn send_raw_transaction(&mut self, signed_tx: &[u8]) -> Result<String> {
         let hex_tx = format!("0x{}", hex::encode(signed_tx));

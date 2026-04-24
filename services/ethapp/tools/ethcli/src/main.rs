@@ -151,6 +151,75 @@ enum Commands {
         wait_timeout: u64,
     },
 
+    /// Check the ERC-20 token balance of an address.
+    TokenBalance {
+        /// Token contract address (hex, 20 bytes)
+        #[arg(long)]
+        token: String,
+
+        /// JSON-RPC URL
+        #[arg(long)]
+        rpc_url: String,
+
+        /// Account index (uses device address). Ignored if --address is set.
+        #[arg(long, default_value = "0")]
+        index: u32,
+
+        /// Query this address instead of the device's. No device needed.
+        #[arg(long)]
+        address: Option<String>,
+
+        /// Token decimals for formatting (default: 18)
+        #[arg(long, default_value = "18")]
+        decimals: u8,
+
+        /// Token symbol for display (default: "tokens")
+        #[arg(long, default_value = "tokens")]
+        symbol: String,
+    },
+
+    /// Build, sign, and optionally broadcast an ERC-20 transfer transaction.
+    /// Uses EIP-1559 by default; pass --legacy for legacy EIP-155.
+    SendToken {
+        /// Token contract address (hex, 20 bytes)
+        #[arg(long)]
+        token: String,
+
+        /// Recipient address (hex, 20 bytes)
+        to: String,
+
+        /// Amount in the token's smallest unit (e.g. 1000000 = 1 USDC)
+        amount: u128,
+
+        /// JSON-RPC URL (for auto-fetching nonce/fees/gas)
+        #[arg(long)]
+        rpc_url: String,
+
+        /// Account index for signing
+        #[arg(long, default_value = "0")]
+        index: u32,
+
+        /// Override nonce
+        #[arg(long)]
+        nonce: Option<u64>,
+
+        /// Override chain ID
+        #[arg(long)]
+        chain_id: Option<u64>,
+
+        /// Override gas limit
+        #[arg(long)]
+        gas_limit: Option<u64>,
+
+        /// Use legacy transaction instead of EIP-1559
+        #[arg(long)]
+        legacy: bool,
+
+        /// Broadcast the signed tx immediately
+        #[arg(long)]
+        broadcast: bool,
+    },
+
     /// Build (only) the unsigned RLP for a legacy EIP-155 transaction.
     /// Does NOT touch the device — useful for offline workflows where you
     /// build the tx on one machine and sign it elsewhere with `sign-tx`.
@@ -235,6 +304,9 @@ fn main() -> Result<()> {
         Commands::Balance { rpc_url, address: Some(ref addr), .. } => {
             return cmd_balance_address(rpc_url, addr);
         }
+        Commands::TokenBalance { ref token, ref rpc_url, address: Some(ref addr), decimals, ref symbol, .. } => {
+            return cmd_token_balance_address(rpc_url, token, addr, *decimals, symbol);
+        }
         _ => {}
     }
 
@@ -263,8 +335,19 @@ fn main() -> Result<()> {
         Commands::Balance { rpc_url, index, address: None } => {
             cmd_balance_device(&mut transport, &rpc_url, index)
         }
+        Commands::TokenBalance { token, rpc_url, index, address: None, decimals, symbol } => {
+            cmd_token_balance_device(&mut transport, &rpc_url, &token, index, decimals, &symbol)
+        }
+        Commands::SendToken {
+            token, to, amount, rpc_url, index,
+            nonce, chain_id, gas_limit, legacy, broadcast,
+        } => cmd_send_token(
+            &mut transport, &token, &to, amount, &rpc_url, index,
+            nonce, chain_id, gas_limit, legacy, broadcast,
+        ),
         Commands::BuildTx { .. } | Commands::Publish { .. }
-        | Commands::Balance { address: Some(_), .. } => unreachable!("handled above"),
+        | Commands::Balance { address: Some(_), .. }
+        | Commands::TokenBalance { address: Some(_), .. } => unreachable!("handled above"),
     }
 }
 
@@ -701,6 +784,235 @@ fn print_balance(addr_hex: &str, rpc_url: &str) -> Result<()> {
 }
 
 // =============================================================================
+// token-balance: check ERC-20 token balance
+// =============================================================================
+
+fn cmd_token_balance_device(
+    t: &mut Transport,
+    rpc_url: &str,
+    token: &str,
+    index: u32,
+    decimals: u8,
+    symbol: &str,
+) -> Result<()> {
+    let path = bip44_payload(0, 0, index);
+    let (status, payload) = t.command(OP_GET_ADDRESS, &path)?;
+    if status != STATUS_OK || payload.len() < 20 {
+        bail!("failed to get address from device (status: 0x{:02x})", status);
+    }
+    let addr_hex = format!("0x{}", hex::encode(&payload[..20]));
+    print_token_balance(&addr_hex, rpc_url, token, decimals, symbol)
+}
+
+fn cmd_token_balance_address(
+    rpc_url: &str,
+    token: &str,
+    address: &str,
+    decimals: u8,
+    symbol: &str,
+) -> Result<()> {
+    let addr = if address.starts_with("0x") || address.starts_with("0X") {
+        address.to_string()
+    } else {
+        format!("0x{}", address)
+    };
+    print_token_balance(&addr, rpc_url, token, decimals, symbol)
+}
+
+fn print_token_balance(
+    owner_hex: &str,
+    rpc_url: &str,
+    token: &str,
+    decimals: u8,
+    symbol: &str,
+) -> Result<()> {
+    let token_clean = token.strip_prefix("0x").unwrap_or(token)
+        .strip_prefix("0X").unwrap_or(token);
+    let token_addr = hex::decode(token_clean)?;
+    if token_addr.len() != 20 {
+        bail!("invalid token address: need 20 bytes, got {}", token_addr.len());
+    }
+
+    let owner_clean = owner_hex.strip_prefix("0x").unwrap_or(owner_hex);
+    let owner_bytes = hex::decode(owner_clean)?;
+    if owner_bytes.len() != 20 {
+        bail!("invalid owner address: need 20 bytes, got {}", owner_bytes.len());
+    }
+    let owner_arr: [u8; 20] = owner_bytes.try_into().unwrap();
+
+    let calldata = encode_erc20_balance_of(&owner_arr);
+    let token_hex = format!("0x{}", hex::encode(&token_addr));
+
+    let mut rpc = rpc::RpcClient::new(rpc_url);
+    let result = rpc.eth_call(&token_hex, &calldata)?;
+
+    // Parse uint256 result — use the last 16 bytes as u128
+    let balance = if result.len() >= 32 {
+        // Check for overflow in top 16 bytes
+        let has_high = result[..16].iter().any(|&b| b != 0);
+        if has_high {
+            println!("{} 0x{} {} (too large for decimal formatting)", owner_hex, hex::encode(&result), symbol);
+            return Ok(());
+        }
+        let mut buf = [0u8; 16];
+        buf.copy_from_slice(&result[16..32]);
+        u128::from_be_bytes(buf)
+    } else {
+        bail!("unexpected eth_call result length: {}", result.len());
+    };
+
+    let formatted = format_token_balance(balance, decimals);
+    println!("{} {} {}", owner_hex, formatted, symbol);
+    Ok(())
+}
+
+fn format_token_balance(value: u128, decimals: u8) -> String {
+    if decimals == 0 {
+        return format!("{}", value);
+    }
+    let divisor = 10u128.pow(decimals as u32);
+    let whole = value / divisor;
+    let frac = value % divisor;
+    if frac == 0 {
+        format!("{}", whole)
+    } else {
+        let frac_str = format!("{:0width$}", frac, width = decimals as usize);
+        let trimmed = frac_str.trim_end_matches('0');
+        format!("{}.{}", whole, trimmed)
+    }
+}
+
+// =============================================================================
+// send-token: build, sign, and emit an ERC-20 transfer
+// =============================================================================
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_send_token(
+    t: &mut Transport,
+    token: &str,
+    to: &str,
+    amount: u128,
+    rpc_url: &str,
+    index: u32,
+    nonce_override: Option<u64>,
+    chain_id_override: Option<u64>,
+    gas_limit_override: Option<u64>,
+    legacy: bool,
+    broadcast: bool,
+) -> Result<()> {
+    // Parse addresses
+    let token_clean = token.strip_prefix("0x").unwrap_or(token);
+    let token_addr = hex::decode(token_clean)?;
+    if token_addr.len() != 20 {
+        bail!("invalid token address: need 20 bytes, got {}", token_addr.len());
+    }
+
+    let to_clean = to.strip_prefix("0x").unwrap_or(to);
+    let to_bytes = hex::decode(to_clean)?;
+    if to_bytes.len() != 20 {
+        bail!("invalid recipient address: need 20 bytes, got {}", to_bytes.len());
+    }
+    let to_arr: [u8; 20] = to_bytes.try_into().unwrap();
+
+    // Encode ERC-20 transfer calldata
+    let calldata = encode_erc20_transfer(&to_arr, amount);
+
+    // Get sender address from device
+    let path = bip44_payload(0, 0, index);
+    let (status, payload) = t.command(OP_GET_ADDRESS, &path)?;
+    if status != STATUS_OK || payload.len() < 20 {
+        bail!("failed to get address from device (status: 0x{:02x})", status);
+    }
+    let sender_hex = format!("0x{}", hex::encode(&payload[..20]));
+    let token_hex = format!("0x{}", hex::encode(&token_addr));
+
+    // Fetch chain state
+    let mut rpc = rpc::RpcClient::new(rpc_url);
+    let chain_id = chain_id_override.map_or_else(|| rpc.chain_id(), Ok)?;
+    let nonce = nonce_override.map_or_else(|| rpc.nonce(&sender_hex), Ok)?;
+
+    let gas_limit = match gas_limit_override {
+        Some(g) => g,
+        None => {
+            let estimated = rpc.estimate_gas(&sender_hex, &token_hex, 0, &calldata)?;
+            // Add 20% buffer for ERC-20 transfers
+            estimated * 6 / 5
+        }
+    };
+
+    // Build unsigned tx
+    let unsigned = if legacy {
+        let gas_price = rpc.gas_price()? as u64;
+        let params = TxParams { nonce, gas_price, gas_limit, chain_id };
+        let unsigned = rlp_encode_legacy_unsigned(&token_addr, 0, &calldata, &params);
+
+        println!("type:      Legacy (EIP-155)");
+        println!("chain:     {} ({})", chain_id, chain_name(chain_id));
+        println!("token:     0x{}", token_clean);
+        println!("to:        0x{}", to_clean);
+        println!("amount:    {} (smallest unit)", amount);
+        println!("nonce:     {}  gas: {}  gasPrice: {} wei", nonce, gas_limit, gas_price);
+
+        unsigned
+    } else {
+        let fees = rpc.fee_suggestion()?
+            .ok_or_else(|| anyhow::anyhow!("chain does not support EIP-1559; use --legacy"))?;
+        let max_priority_fee = fees.priority_fee_per_gas;
+        let max_fee = fees.max_fee_per_gas();
+
+        let unsigned = rlp_encode_eip1559_unsigned(
+            chain_id, nonce, max_priority_fee, max_fee,
+            gas_limit, &token_addr, 0, &calldata,
+        );
+
+        println!("type:      EIP-1559");
+        println!("chain:     {} ({})", chain_id, chain_name(chain_id));
+        println!("token:     0x{}", token_clean);
+        println!("to:        0x{}", to_clean);
+        println!("amount:    {} (smallest unit)", amount);
+        println!(
+            "nonce:     {}  gas: {}  maxFee: {} wei  priorityFee: {} wei",
+            nonce, gas_limit, max_fee, max_priority_fee,
+        );
+
+        unsigned
+    };
+
+    // Sign on device
+    let mut sign_payload = bip44_payload(0, 0, index);
+    sign_payload.extend_from_slice(&unsigned);
+
+    let (status, resp) = t.command(OP_SIGN_TRANSACTION, &sign_payload)?;
+    if status != STATUS_OK {
+        bail!("sign failed (status: 0x{:02x})", status);
+    }
+    if resp.len() < 72 {
+        bail!("unexpected signature response length: {}", resp.len());
+    }
+
+    let v = u64::from_le_bytes(resp[0..8].try_into().unwrap());
+    let mut r = [0u8; 32];
+    let mut s = [0u8; 32];
+    r.copy_from_slice(&resp[8..40]);
+    s.copy_from_slice(&resp[40..72]);
+
+    let tx_type = if legacy { None } else { Some(0x02) };
+    let signed = assemble_signed_tx(&unsigned, tx_type, v, &r, &s)?;
+
+    println!("v={}", v);
+    println!("r={}", hex::encode(&r));
+    println!("s={}", hex::encode(&s));
+    println!("raw: 0x{}", hex::encode(&signed));
+
+    if broadcast {
+        let tx_hash = rpc.send_raw_transaction(&signed)?;
+        println!("tx hash: {}", tx_hash);
+    }
+
+    Ok(())
+}
+
+// =============================================================================
 // tx-info: fetch chain state for transaction construction
 // =============================================================================
 
@@ -982,6 +1294,67 @@ struct TxParams {
     gas_price: u64,
     gas_limit: u64,
     chain_id: u64,
+}
+
+// =============================================================================
+// ERC-20 ABI encoding helpers
+// =============================================================================
+
+/// ERC-20 transfer(address,uint256) selector: keccak256("transfer(address,uint256)")[:4]
+const ERC20_TRANSFER_SELECTOR: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
+/// ERC-20 balanceOf(address) selector: keccak256("balanceOf(address)")[:4]
+const ERC20_BALANCE_OF_SELECTOR: [u8; 4] = [0x70, 0xa0, 0x82, 0x31];
+
+/// Encode an ERC-20 `transfer(address,uint256)` call.
+/// Returns 68 bytes: 4-byte selector + 32-byte address + 32-byte amount.
+fn encode_erc20_transfer(recipient: &[u8; 20], amount: u128) -> Vec<u8> {
+    let mut data = Vec::with_capacity(68);
+    data.extend_from_slice(&ERC20_TRANSFER_SELECTOR);
+    // ABI: address is left-padded to 32 bytes
+    data.extend_from_slice(&[0u8; 12]);
+    data.extend_from_slice(recipient);
+    // ABI: uint256 is big-endian, left-padded to 32 bytes
+    data.extend_from_slice(&[0u8; 16]);
+    data.extend_from_slice(&amount.to_be_bytes());
+    data
+}
+
+/// Encode an ERC-20 `balanceOf(address)` call.
+/// Returns 36 bytes: 4-byte selector + 32-byte address.
+fn encode_erc20_balance_of(owner: &[u8; 20]) -> Vec<u8> {
+    let mut data = Vec::with_capacity(36);
+    data.extend_from_slice(&ERC20_BALANCE_OF_SELECTOR);
+    data.extend_from_slice(&[0u8; 12]);
+    data.extend_from_slice(owner);
+    data
+}
+
+/// RLP-encode an unsigned EIP-1559 transaction:
+/// 0x02 || rlp([chainId, nonce, maxPriorityFeePerGas, maxFeePerGas,
+///              gasLimit, to, value, data, accessList(empty)])
+fn rlp_encode_eip1559_unsigned(
+    chain_id: u64,
+    nonce: u64,
+    max_priority_fee: u128,
+    max_fee: u128,
+    gas_limit: u64,
+    to: &[u8],
+    value: u128,
+    data: &[u8],
+) -> Vec<u8> {
+    let mut items = Vec::new();
+    items.extend_from_slice(&rlp_encode_u64(chain_id));
+    items.extend_from_slice(&rlp_encode_u64(nonce));
+    items.extend_from_slice(&rlp_encode_u128(max_priority_fee));
+    items.extend_from_slice(&rlp_encode_u128(max_fee));
+    items.extend_from_slice(&rlp_encode_u64(gas_limit));
+    items.extend_from_slice(&rlp_encode_bytes(to));
+    items.extend_from_slice(&rlp_encode_u128(value));
+    items.extend_from_slice(&rlp_encode_bytes(data));
+    items.extend_from_slice(&rlp_encode_list(&[])); // empty access list
+    let mut out = vec![0x02]; // EIP-1559 type byte
+    out.extend_from_slice(&rlp_encode_list(&items));
+    out
 }
 
 /// RLP-encode an unsigned legacy EIP-155 transaction:

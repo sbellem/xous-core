@@ -254,8 +254,14 @@ fn process_sign_transaction(
         }
     }
 
+    // Look up cached token info if this is a contract call to a known token
+    let token_info = match (&tx.to, tx.chain_id) {
+        (Some(addr), Some(cid)) => state.get_token_info(cid, addr).cloned(),
+        _ => None,
+    };
+
     // Display transaction for user confirmation
-    if !ui::display_transaction(&state.platform, &tx, false)? {
+    if !ui::display_transaction(&state.platform, &tx, false, token_info.as_ref())? {
         state.record_sign_rejected();
         return Err(EthAppError::RejectedByUser);
     }

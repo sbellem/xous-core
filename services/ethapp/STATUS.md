@@ -76,6 +76,10 @@ the security model.
   - EIP-1559 typed (fee market)
 - **Message signing**: EIP-191 personal messages, EIP-712 typed data
   (both pre-hashed and structured)
+- **ERC-20 clear signing**: Device decodes `transfer()` and `approve()`
+  calldata and displays human-readable fields (recipient/spender,
+  amount with token decimals) instead of raw hex. Uses cached token
+  metadata when available; falls back to raw values otherwise.
 - **PDDB persistent seed storage**: plumbed through `XousPlatform`
   (encrypted at rest, plausibly-deniable). Optional `pddb` Cargo feature;
   **not yet enabled in default xtask builds**.
@@ -114,13 +118,17 @@ Standalone workspace, builds with `cargo build --release` or `nix build .#ethcli
 | `build-tx <to> <wei>` | offline unsigned RLP only | **no** | no |
 | `tx-info --rpc-url URL` | nonce, gas, fees, balance | yes (for addr) | yes |
 | `publish <hex> --rpc-url URL` | broadcast (alias: `broadcast`) | **no** | yes |
+| `token-balance --token ADDR` | ERC-20 balance query | optional | yes |
+| `send-token --token ADDR TO AMT` | ERC-20 transfer (EIP-1559 default) | yes | yes |
 
-Three workflows are supported:
+Four workflows are supported:
 
 1. **Online all-in-one**: `tx-info` → `gen-tx` → `publish`
 2. **Air-gapped**: `build-tx` (offline machine) → transfer hex →
    `sign-tx` (device-connected machine) → `publish` (online machine)
-3. **Manual**: `sign-tx` with externally-built RLP
+3. **ERC-20 transfer**: `send-token --broadcast` (builds EIP-1559 tx,
+   signs on device, broadcasts — all in one command)
+4. **Manual**: `sign-tx` with externally-built RLP
 
 JSON-RPC client uses `ureq` + `rustls` (no system deps beyond libudev for
 `serialport` USB enumeration on Linux).
@@ -213,21 +221,25 @@ backup confirmed.
 
 ## Important functional gaps
 
-### F1. ethcli only builds legacy EIP-155 transactions
+### F1. ethcli only builds legacy EIP-155 transactions for plain ETH
 
-The device signs all 3 tx types, but `gen-tx` and `build-tx` only emit
-legacy. Mainnet has been EIP-1559 since 2021; legacy is increasingly
-rejected. Need a `--type 1559` flag or separate command that takes
-`--max-fee` / `--priority-fee` and constructs the typed RLP.
+~~The device signs all 3 tx types, but `gen-tx` and `build-tx` only emit
+legacy.~~ **Partially addressed**: `send-token` builds EIP-1559
+transactions by default (with `--legacy` fallback). However, `gen-tx`
+and `build-tx` still only emit legacy EIP-155 for plain ETH transfers.
+A generic `--type 1559` flag for `gen-tx` is still needed.
 
-### F2. No clear signing for contracts
+### F2. Clear signing limited to ERC-20 transfer/approve
 
-Contract calls (ERC-20 transfers, swaps, approvals, etc.) display as raw
-calldata `0xa9059cbb...` which users cannot meaningfully verify. Need:
-- ABI database / 4byte.directory mirror, or vendor-signed ABI metadata
-- Device-side decoder for known patterns
+~~Contract calls display as raw calldata.~~ **Partially addressed**:
+the device now decodes `transfer(address,uint256)` and
+`approve(address,uint256)` calldata and displays human-readable fields.
+Still needed:
+- ABI database / 4byte.directory mirror for other contract calls
+  (swaps, multicalls, etc.)
 - ENS resolution on host with on-device confirmation of the resolved
   raw address
+- Broader ABI decoding for arbitrary function signatures
 
 ### F3. PDDB feature not enabled in default builds
 
@@ -280,12 +292,11 @@ Production hardware wallets get reviewed by independent firms (e.g.
 Trail of Bits, Cure53, NCC). The internal audit fixes in
 `bd293f21e` are a good start but external eyes are required.
 
-### O5. No documentation
+### O5. Limited documentation
 
-- No threat model document
-- No user-facing setup / recovery / troubleshooting guide
-- No security model documentation for reviewers
-- No reproducible-build instructions for users to verify their firmware
+- README.md added with CLI usage guide and architecture overview
+- Still missing: threat model, security model for reviewers,
+  reproducible-build verification guide, troubleshooting
 
 ### O6. UX rough edges
 
@@ -324,8 +335,10 @@ Trail of Bits, Cure53, NCC). The internal audit fixes in
 6. **Mnemonic verification quiz** flow after `generate-mnemonic`.
 7. **BIP39 passphrase** support (25th word).
 8. **PIN-on-device** protection (in addition to PDDB unlock).
-9. **EIP-1559 builder** in `ethcli` (`gen-tx --type 1559 --max-fee ... --priority-fee ...`).
-10. **Clear signing** for ERC-20 transfer/approve, common DeFi calls.
+9. **EIP-1559 builder** in `ethcli` — done for `send-token`; still
+   needed for plain ETH transfers (`gen-tx --type 1559`).
+10. **Clear signing** — done for ERC-20 `transfer`/`approve`; still
+    needed for common DeFi calls (swaps, multicalls).
 
 ### P2 — production polish
 
@@ -384,5 +397,5 @@ without the hardware-wallet positioning.
 
 ---
 
-*Last updated alongside the work in branch `ethapp-origins` (commits
-`f0c83a682` through `f9a6fba0f0`).*
+*Last updated with ERC-20 support and README addition on branch
+`ethapp`.*
