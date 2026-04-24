@@ -81,7 +81,10 @@ fn service_main() {
                 }
             }
             None => {
-                log::warn!("ethapp: Unknown opcode: {}", msg.body.id());
+                // Opcode 0 is sent by EthAppClient::Drop as a disconnect signal.
+                if msg.body.id() != 0 {
+                    log::warn!("ethapp: Unknown opcode: {}", msg.body.id());
+                }
             }
         }
     }
@@ -190,7 +193,7 @@ fn handle_message(
         // === Internal ===
         EthAppOp::ClearMetadataCache => {
             state.clear_metadata_cache();
-            handlers::return_success(msg)?;
+            // Don't reply — client uses non-blocking send_scalar.
         }
         EthAppOp::GetStats => {
             handlers::handle_get_stats(state, msg)?;
