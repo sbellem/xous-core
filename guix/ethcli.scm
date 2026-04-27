@@ -15,11 +15,11 @@
   #:use-module (guix build-system gnu)
   #:use-module ((guix licenses)
                 #:prefix license:)
+  #:use-module (gnu packages base)           ; coreutils
+  #:use-module (gnu packages compression)   ; tar, gzip
   #:use-module (gnu packages linux)         ; eudev (libudev)
   #:use-module (gnu packages pkg-config)
-  #:use-module (gnu packages rust)
-  #:use-module (gnu packages coreutils)
-  #:use-module (gnu packages compression)
+  #:use-module (rust-xous-toolchain)        ; provides cargo/rustc
   #:use-module (bao-config)
   #:use-module (ethcli-crates))
 
@@ -81,12 +81,15 @@
 
           ;; Configure cargo for offline vendored builds
           (add-after 'setup-vendor 'setup-cargo
-            (lambda _
-              (let ((vendor-dir (string-append (getcwd) "/vendor")))
+            (lambda* (#:key inputs #:allow-other-keys)
+              (let ((vendor-dir (string-append (getcwd) "/vendor"))
+                    (rust (assoc-ref inputs "rust")))
                 (setenv "HOME" (getcwd))
                 (setenv "CARGO_HOME"
                         (string-append (getcwd) "/.cargo"))
                 (mkdir-p (getenv "CARGO_HOME"))
+                (setenv "PATH"
+                        (string-append rust "/bin:" (getenv "PATH")))
                 (call-with-output-file ".cargo/config.toml"
                   (lambda (port)
                     (display
@@ -113,7 +116,7 @@
                 (mkdir-p bin)
                 (install-file "target/release/ethcli" bin)))))))
     (native-inputs
-     `(("rust" ,rust)
+     `(("rust" ,rust-xous-toolchain)
        ("pkg-config" ,pkg-config)
        ("tar" ,tar)
        ("gzip" ,gzip)
