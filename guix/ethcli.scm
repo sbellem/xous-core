@@ -17,20 +17,8 @@
                 #:prefix license:)
   #:use-module (gnu packages linux)         ; eudev (libudev)
   #:use-module (gnu packages pkg-config)
-  #:use-module (bao-config))
-
-;;; TODO: The cargo-build-system requires all transitive Rust crate deps
-;;; declared as #:cargo-inputs.  Generate them with:
-;;;
-;;;   cd services/ethapp/tools/ethcli
-;;;   guix import crate -r clap@4 serialport@4 ureq@2 serde_json@1 hex@0.4 anyhow@1
-;;;
-;;; Then paste the resulting (package ...) definitions here or into a
-;;; separate ethcli-crates.scm, and reference them in #:cargo-inputs below.
-;;;
-;;; For now, this package definition uses gnu-build-system with cargo
-;;; invoked manually, which avoids needing every transitive crate declared
-;;; but requires network access (or a pre-populated cargo registry).
+  #:use-module (bao-config)
+  #:use-module (ethcli-crates))
 
 (define-public ethcli
   (package
@@ -45,8 +33,7 @@
     (build-system cargo-build-system)
     (arguments
      (list
-      ;; TODO: populate with transitive crate deps from `guix import crate`
-      #:cargo-inputs '()
+      #:cargo-inputs %ethcli-crate-inputs
       #:phases
       #~(modify-phases %standard-phases
           (add-after 'unpack 'set-version
