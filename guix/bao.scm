@@ -19,7 +19,8 @@
   #:use-module (srfi srfi-1)
   #:use-module (rust-xous-toolchain)
   #:use-module (bao-crates)
-  #:use-module (bao-config))
+  #:use-module (bao-config)
+  #:use-module (ethapp-crates))            ; %ethapp-crate-inputs
 
 ;; Short hash for display (first 8 chars of commit)
 (define %xous-short-hash
@@ -536,7 +537,8 @@
   (make-firmware-build "dabao-ethapp"
                        "dabao ethapp-test"
                        #:target-dir "riscv32imac-unknown-xous-elf"
-                       #:crate-inputs (lookup-cargo-inputs 'dabao-ethapp)))
+                       #:crate-inputs (append (lookup-cargo-inputs 'dabao-ethapp)
+                                            %ethapp-crate-inputs)))
 
 (define-public baosec
   (make-firmware-build "baosec"
