@@ -6,7 +6,6 @@
 (define-module (ethcli-crates)
   #:use-module (guix packages)
   #:use-module (guix download)
-  #:use-module (guix build-system cargo)
   #:use-module (bao-crates)
   #:export (%ethcli-crate-inputs))
 
@@ -442,116 +441,113 @@
   (crate-source "zmij" "1.0.21"
                 "1amb5i6gz7yjb0dnmz5y669674pqmwbj44p4yfxfv2ncgvk8x15q"))
 
-;;; Cargo inputs list for cargo-build-system.
-;;; Format: list of ("crate-name" ,origin) pairs.
-
 (define %ethcli-crate-inputs
-  `(("rust-adler2-2.0.1" ,rust-adler2-2.0.1)
-    ("rust-anstream-1.0.0" ,rust-anstream-1.0.0)
-    ("rust-anstyle-1.0.14" ,rust-anstyle-1.0.14)
-    ("rust-anstyle-parse-1.0.0" ,rust-anstyle-parse-1.0.0)
-    ("rust-anstyle-query-1.1.5" ,rust-anstyle-query-1.1.5)
-    ("rust-anstyle-wincon-3.0.11" ,rust-anstyle-wincon-3.0.11)
-    ("rust-anyhow-1.0.102" ,rust-anyhow-1.0.102)
-    ("rust-base64-0.22.1" ,rust-base64-0.22.1)
-    ("rust-bitflags-1.3.2" ,rust-bitflags-1.3.2)
-    ("rust-bitflags-2.11.1" ,rust-bitflags-2.11.1)
-    ("rust-cc-1.2.60" ,rust-cc-1.2.60)
-    ("rust-cfg-if-1.0.4" ,rust-cfg-if-1.0.4)
-    ("rust-clap-4.6.1" ,rust-clap-4.6.1)
-    ("rust-clap-builder-4.6.0" ,rust-clap-builder-4.6.0)
-    ("rust-clap-derive-4.6.1" ,rust-clap-derive-4.6.1)
-    ("rust-clap-lex-1.1.0" ,rust-clap-lex-1.1.0)
-    ("rust-colorchoice-1.0.5" ,rust-colorchoice-1.0.5)
-    ("rust-core-foundation-0.10.1" ,rust-core-foundation-0.10.1)
-    ("rust-core-foundation-sys-0.8.7" ,rust-core-foundation-sys-0.8.7)
-    ("rust-crc32fast-1.5.0" ,rust-crc32fast-1.5.0)
-    ("rust-displaydoc-0.2.5" ,rust-displaydoc-0.2.5)
-    ("rust-find-msvc-tools-0.1.9" ,rust-find-msvc-tools-0.1.9)
-    ("rust-flate2-1.1.9" ,rust-flate2-1.1.9)
-    ("rust-form-urlencoded-1.2.2" ,rust-form-urlencoded-1.2.2)
-    ("rust-getrandom-0.2.17" ,rust-getrandom-0.2.17)
-    ("rust-heck-0.5.0" ,rust-heck-0.5.0)
-    ("rust-hex-0.4.3" ,rust-hex-0.4.3)
-    ("rust-icu-collections-2.2.0" ,rust-icu-collections-2.2.0)
-    ("rust-icu-locale-core-2.2.0" ,rust-icu-locale-core-2.2.0)
-    ("rust-icu-normalizer-2.2.0" ,rust-icu-normalizer-2.2.0)
-    ("rust-icu-normalizer-data-2.2.0" ,rust-icu-normalizer-data-2.2.0)
-    ("rust-icu-properties-2.2.0" ,rust-icu-properties-2.2.0)
-    ("rust-icu-properties-data-2.2.0" ,rust-icu-properties-data-2.2.0)
-    ("rust-icu-provider-2.2.0" ,rust-icu-provider-2.2.0)
-    ("rust-idna-1.1.0" ,rust-idna-1.1.0)
-    ("rust-idna-adapter-1.2.1" ,rust-idna-adapter-1.2.1)
-    ("rust-io-kit-sys-0.4.1" ,rust-io-kit-sys-0.4.1)
-    ("rust-is-terminal-polyfill-1.70.2" ,rust-is-terminal-polyfill-1.70.2)
-    ("rust-itoa-1.0.18" ,rust-itoa-1.0.18)
-    ("rust-libc-0.2.185" ,rust-libc-0.2.185)
-    ("rust-libudev-0.3.0" ,rust-libudev-0.3.0)
-    ("rust-libudev-sys-0.1.4" ,rust-libudev-sys-0.1.4)
-    ("rust-litemap-0.8.2" ,rust-litemap-0.8.2)
-    ("rust-log-0.4.29" ,rust-log-0.4.29)
-    ("rust-mach2-0.4.3" ,rust-mach2-0.4.3)
-    ("rust-memchr-2.8.0" ,rust-memchr-2.8.0)
-    ("rust-miniz-oxide-0.8.9" ,rust-miniz-oxide-0.8.9)
-    ("rust-nix-0.26.4" ,rust-nix-0.26.4)
-    ("rust-once-cell-1.21.4" ,rust-once-cell-1.21.4)
-    ("rust-once-cell-polyfill-1.70.2" ,rust-once-cell-polyfill-1.70.2)
-    ("rust-percent-encoding-2.3.2" ,rust-percent-encoding-2.3.2)
-    ("rust-pkg-config-0.3.33" ,rust-pkg-config-0.3.33)
-    ("rust-potential-utf-0.1.5" ,rust-potential-utf-0.1.5)
-    ("rust-proc-macro2-1.0.106" ,rust-proc-macro2-1.0.106)
-    ("rust-quote-1.0.45" ,rust-quote-1.0.45)
-    ("rust-ring-0.17.14" ,rust-ring-0.17.14)
-    ("rust-rustls-0.23.38" ,rust-rustls-0.23.38)
-    ("rust-rustls-pki-types-1.14.0" ,rust-rustls-pki-types-1.14.0)
-    ("rust-rustls-webpki-0.103.12" ,rust-rustls-webpki-0.103.12)
-    ("rust-scopeguard-1.2.0" ,rust-scopeguard-1.2.0)
-    ("rust-serde-1.0.228" ,rust-serde-1.0.228)
-    ("rust-serde-core-1.0.228" ,rust-serde-core-1.0.228)
-    ("rust-serde-derive-1.0.228" ,rust-serde-derive-1.0.228)
-    ("rust-serde-json-1.0.149" ,rust-serde-json-1.0.149)
-    ("rust-serialport-4.9.0" ,rust-serialport-4.9.0)
-    ("rust-shlex-1.3.0" ,rust-shlex-1.3.0)
-    ("rust-simd-adler32-0.3.9" ,rust-simd-adler32-0.3.9)
-    ("rust-smallvec-1.15.1" ,rust-smallvec-1.15.1)
-    ("rust-stable-deref-trait-1.2.1" ,rust-stable-deref-trait-1.2.1)
-    ("rust-strsim-0.11.1" ,rust-strsim-0.11.1)
-    ("rust-subtle-2.6.1" ,rust-subtle-2.6.1)
-    ("rust-syn-2.0.117" ,rust-syn-2.0.117)
-    ("rust-synstructure-0.13.2" ,rust-synstructure-0.13.2)
-    ("rust-thiserror-2.0.18" ,rust-thiserror-2.0.18)
-    ("rust-thiserror-impl-2.0.18" ,rust-thiserror-impl-2.0.18)
-    ("rust-tinystr-0.8.3" ,rust-tinystr-0.8.3)
-    ("rust-unescaper-0.1.8" ,rust-unescaper-0.1.8)
-    ("rust-unicode-ident-1.0.24" ,rust-unicode-ident-1.0.24)
-    ("rust-untrusted-0.9.0" ,rust-untrusted-0.9.0)
-    ("rust-ureq-2.12.1" ,rust-ureq-2.12.1)
-    ("rust-url-2.5.8" ,rust-url-2.5.8)
-    ("rust-utf8-iter-1.0.4" ,rust-utf8-iter-1.0.4)
-    ("rust-utf8parse-0.2.2" ,rust-utf8parse-0.2.2)
-    ("rust-wasi-0.11.1+wasi-snapshot-preview1" ,rust-wasi-0.11.1+wasi-snapshot-preview1)
-    ("rust-webpki-roots-0.26.11" ,rust-webpki-roots-0.26.11)
-    ("rust-webpki-roots-1.0.7" ,rust-webpki-roots-1.0.7)
-    ("rust-windows-link-0.2.1" ,rust-windows-link-0.2.1)
-    ("rust-windows-sys-0.52.0" ,rust-windows-sys-0.52.0)
-    ("rust-windows-sys-0.61.2" ,rust-windows-sys-0.61.2)
-    ("rust-windows-targets-0.52.6" ,rust-windows-targets-0.52.6)
-    ("rust-windows-aarch64-gnullvm-0.52.6" ,rust-windows-aarch64-gnullvm-0.52.6)
-    ("rust-windows-aarch64-msvc-0.52.6" ,rust-windows-aarch64-msvc-0.52.6)
-    ("rust-windows-i686-gnu-0.52.6" ,rust-windows-i686-gnu-0.52.6)
-    ("rust-windows-i686-gnullvm-0.52.6" ,rust-windows-i686-gnullvm-0.52.6)
-    ("rust-windows-i686-msvc-0.52.6" ,rust-windows-i686-msvc-0.52.6)
-    ("rust-windows-x86-64-gnu-0.52.6" ,rust-windows-x86-64-gnu-0.52.6)
-    ("rust-windows-x86-64-gnullvm-0.52.6" ,rust-windows-x86-64-gnullvm-0.52.6)
-    ("rust-windows-x86-64-msvc-0.52.6" ,rust-windows-x86-64-msvc-0.52.6)
-    ("rust-writeable-0.6.3" ,rust-writeable-0.6.3)
-    ("rust-yoke-0.8.2" ,rust-yoke-0.8.2)
-    ("rust-yoke-derive-0.8.2" ,rust-yoke-derive-0.8.2)
-    ("rust-zerofrom-0.1.7" ,rust-zerofrom-0.1.7)
-    ("rust-zerofrom-derive-0.1.7" ,rust-zerofrom-derive-0.1.7)
-    ("rust-zeroize-1.8.2" ,rust-zeroize-1.8.2)
-    ("rust-zerotrie-0.2.4" ,rust-zerotrie-0.2.4)
-    ("rust-zerovec-0.11.6" ,rust-zerovec-0.11.6)
-    ("rust-zerovec-derive-0.11.3" ,rust-zerovec-derive-0.11.3)
-    ("rust-zmij-1.0.21" ,rust-zmij-1.0.21)
-  ))
+  (list rust-adler2-2.0.1
+        rust-anstream-1.0.0
+        rust-anstyle-1.0.14
+        rust-anstyle-parse-1.0.0
+        rust-anstyle-query-1.1.5
+        rust-anstyle-wincon-3.0.11
+        rust-anyhow-1.0.102
+        rust-base64-0.22.1
+        rust-bitflags-1.3.2
+        rust-bitflags-2.11.1
+        rust-cc-1.2.60
+        rust-cfg-if-1.0.4
+        rust-clap-4.6.1
+        rust-clap-builder-4.6.0
+        rust-clap-derive-4.6.1
+        rust-clap-lex-1.1.0
+        rust-colorchoice-1.0.5
+        rust-core-foundation-0.10.1
+        rust-core-foundation-sys-0.8.7
+        rust-crc32fast-1.5.0
+        rust-displaydoc-0.2.5
+        rust-find-msvc-tools-0.1.9
+        rust-flate2-1.1.9
+        rust-form-urlencoded-1.2.2
+        rust-getrandom-0.2.17
+        rust-heck-0.5.0
+        rust-hex-0.4.3
+        rust-icu-collections-2.2.0
+        rust-icu-locale-core-2.2.0
+        rust-icu-normalizer-2.2.0
+        rust-icu-normalizer-data-2.2.0
+        rust-icu-properties-2.2.0
+        rust-icu-properties-data-2.2.0
+        rust-icu-provider-2.2.0
+        rust-idna-1.1.0
+        rust-idna-adapter-1.2.1
+        rust-io-kit-sys-0.4.1
+        rust-is-terminal-polyfill-1.70.2
+        rust-itoa-1.0.18
+        rust-libc-0.2.185
+        rust-libudev-0.3.0
+        rust-libudev-sys-0.1.4
+        rust-litemap-0.8.2
+        rust-log-0.4.29
+        rust-mach2-0.4.3
+        rust-memchr-2.8.0
+        rust-miniz-oxide-0.8.9
+        rust-nix-0.26.4
+        rust-once-cell-1.21.4
+        rust-once-cell-polyfill-1.70.2
+        rust-percent-encoding-2.3.2
+        rust-pkg-config-0.3.33
+        rust-potential-utf-0.1.5
+        rust-proc-macro2-1.0.106
+        rust-quote-1.0.45
+        rust-ring-0.17.14
+        rust-rustls-0.23.38
+        rust-rustls-pki-types-1.14.0
+        rust-rustls-webpki-0.103.12
+        rust-scopeguard-1.2.0
+        rust-serde-1.0.228
+        rust-serde-core-1.0.228
+        rust-serde-derive-1.0.228
+        rust-serde-json-1.0.149
+        rust-serialport-4.9.0
+        rust-shlex-1.3.0
+        rust-simd-adler32-0.3.9
+        rust-smallvec-1.15.1
+        rust-stable-deref-trait-1.2.1
+        rust-strsim-0.11.1
+        rust-subtle-2.6.1
+        rust-syn-2.0.117
+        rust-synstructure-0.13.2
+        rust-thiserror-2.0.18
+        rust-thiserror-impl-2.0.18
+        rust-tinystr-0.8.3
+        rust-unescaper-0.1.8
+        rust-unicode-ident-1.0.24
+        rust-untrusted-0.9.0
+        rust-ureq-2.12.1
+        rust-url-2.5.8
+        rust-utf8-iter-1.0.4
+        rust-utf8parse-0.2.2
+        rust-wasi-0.11.1+wasi-snapshot-preview1
+        rust-webpki-roots-0.26.11
+        rust-webpki-roots-1.0.7
+        rust-windows-link-0.2.1
+        rust-windows-sys-0.52.0
+        rust-windows-sys-0.61.2
+        rust-windows-targets-0.52.6
+        rust-windows-aarch64-gnullvm-0.52.6
+        rust-windows-aarch64-msvc-0.52.6
+        rust-windows-i686-gnu-0.52.6
+        rust-windows-i686-gnullvm-0.52.6
+        rust-windows-i686-msvc-0.52.6
+        rust-windows-x86-64-gnu-0.52.6
+        rust-windows-x86-64-gnullvm-0.52.6
+        rust-windows-x86-64-msvc-0.52.6
+        rust-writeable-0.6.3
+        rust-yoke-0.8.2
+        rust-yoke-derive-0.8.2
+        rust-zerofrom-0.1.7
+        rust-zerofrom-derive-0.1.7
+        rust-zeroize-1.8.2
+        rust-zerotrie-0.2.4
+        rust-zerovec-0.11.6
+        rust-zerovec-derive-0.11.3
+        rust-zmij-1.0.21
+))

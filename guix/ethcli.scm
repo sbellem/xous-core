@@ -12,11 +12,14 @@
 (define-module (ethcli)
   #:use-module (guix packages)
   #:use-module (guix gexp)
-  #:use-module (guix build-system cargo)
+  #:use-module (guix build-system gnu)
   #:use-module ((guix licenses)
                 #:prefix license:)
   #:use-module (gnu packages linux)         ; eudev (libudev)
   #:use-module (gnu packages pkg-config)
+  #:use-module (gnu packages rust)
+  #:use-module (gnu packages coreutils)
+  #:use-module (gnu packages compression)
   #:use-module (bao-config)
   #:use-module (ethcli-crates))
 
@@ -30,18 +33,97 @@
                  #:recursive? #t
                  #:select? (lambda (file stat)
                              (not (string-contains file "/target/")))))
-    (build-system cargo-build-system)
+    (build-system gnu-build-system)
     (arguments
      (list
-      #:cargo-inputs %ethcli-crate-inputs
       #:phases
       #~(modify-phases %standard-phases
-          (add-after 'unpack 'set-version
+          (delete 'configure)
+          (delete 'check)
+
+          ;; Set up crates.io vendor directory from declared inputs
+          (add-after 'unpack 'setup-vendor
+            (lambda* (#:key inputs #:allow-other-keys)
+              (use-modules (ice-9 popen)
+                           (ice-9 rdelim))
+              (let ((vendor-dir (string-append (getcwd) "/vendor")))
+                (mkdir-p vendor-dir)
+                (for-each
+                 (lambda (input)
+                   (let* ((name (car input))
+                          (path (cdr input)))
+                     (when (string-prefix? "crate-" name)
+                       (let* ((file-name (basename path))
+                              ;; Strip "rust-" prefix and ".tar.gz" suffix
+                              (crate-name (substring file-name 5
+                                                     (- (string-length
+                                                         file-name) 7)))
+                              (crate-dir (string-append vendor-dir
+                                                        "/" crate-name))
+                              (port (open-pipe* OPEN_READ
+                                                "sha256sum" path))
+                              (checksum-line (read-line port))
+                              (_ (close-pipe port))
+                              (checksum (car (string-split
+                                              checksum-line #\space))))
+                         (mkdir-p crate-dir)
+                         (invoke "tar" "xzf" path
+                                 "-C" crate-dir
+                                 "--strip-components=1")
+                         (call-with-output-file
+                             (string-append crate-dir
+                                            "/.cargo-checksum.json")
+                           (lambda (port)
+                             (format port
+                                     "{\"files\":{},\"package\":\"~a\"}"
+                                     checksum)))))))
+                 inputs))))
+
+          ;; Configure cargo for offline vendored builds
+          (add-after 'setup-vendor 'setup-cargo
             (lambda _
-              ;; Inject version for build.rs (no git in build sandbox)
-              (setenv "ETHCLI_VERSION" #$version))))))
-    (native-inputs (list pkg-config))
-    (inputs (list eudev))                   ; libudev for serialport USB enumeration
+              (let ((vendor-dir (string-append (getcwd) "/vendor")))
+                (setenv "HOME" (getcwd))
+                (setenv "CARGO_HOME"
+                        (string-append (getcwd) "/.cargo"))
+                (mkdir-p (getenv "CARGO_HOME"))
+                (call-with-output-file ".cargo/config.toml"
+                  (lambda (port)
+                    (display
+                     (string-append
+                      "[source.crates-io]\n"
+                      "replace-with = \"vendored-sources\"\n\n"
+                      "[source.vendored-sources]\n"
+                      "directory = \"" vendor-dir "\"\n\n"
+                      "[net]\n"
+                      "offline = true\n")
+                     port))))))
+
+          ;; Build with cargo
+          (replace 'build
+            (lambda _
+              (setenv "ETHCLI_VERSION" #$version)
+              (invoke "cargo" "build" "--release" "--offline")))
+
+          ;; Install the binary
+          (replace 'install
+            (lambda* (#:key outputs #:allow-other-keys)
+              (let ((bin (string-append (assoc-ref outputs "out")
+                                        "/bin")))
+                (mkdir-p bin)
+                (install-file "target/release/ethcli" bin)))))))
+    (native-inputs
+     `(("rust" ,rust)
+       ("pkg-config" ,pkg-config)
+       ("tar" ,tar)
+       ("gzip" ,gzip)
+       ("coreutils" ,coreutils)
+       ;; All crate tarballs as inputs
+       ,@(map (lambda (crate)
+                `(,(string-append "crate-"
+                                  (origin-file-name crate)) ,crate))
+              %ethcli-crate-inputs)))
+    (inputs (list eudev))
     (home-page "https://github.com/betrusted-io/xous-core")
     (synopsis "Host CLI for the Baochip-1x Ethereum hardware wallet")
     (description
