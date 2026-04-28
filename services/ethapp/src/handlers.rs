@@ -10,13 +10,14 @@
 use std::string::String;
 
 use ethapp_common::{
-    Bip32Path, EthAppError, MetadataContext, ProvideTokenInfoRequest,
+    AttestedSignature, Bip32Path, EthAppError, InitAttestationRequest,
+    AttestationKeyResponse, MetadataContext, ProvideTokenInfoRequest,
     PublicKeyResponse, Signature, SignEip712HashedRequest, SignEip712MessageRequest,
     SignPersonalMessageRequest, SignTransactionRequest,
 };
 
 use crate::crypto::{
-    derive_private_key, get_compressed_pubkey,
+    attest_transaction_signature, derive_private_key, get_compressed_pubkey,
     public_key_to_address, sign_eth, sign_eip712, sign_personal_message, get_public_key,
 };
 use crate::parsing::TransactionParser;
@@ -228,6 +229,16 @@ fn process_sign_transaction(
     state: &mut ServiceState,
     request: &SignTransactionRequest,
 ) -> Result<Signature, EthAppError> {
+    let (signature, _sign_hash) = process_sign_transaction_inner(state, request)?;
+    Ok(signature)
+}
+
+/// Inner sign transaction — returns both the signature and the sign_hash
+/// (the sign_hash is needed by the attestation co-signature flow).
+fn process_sign_transaction_inner(
+    state: &mut ServiceState,
+    request: &SignTransactionRequest,
+) -> Result<(Signature, ethapp_common::Hash256), EthAppError> {
     // Validate path
     if !request.path.is_valid_ethereum_path() {
         return Err(EthAppError::InvalidDerivationPath);
@@ -266,19 +277,19 @@ fn process_sign_transaction(
         return Err(EthAppError::RejectedByUser);
     }
 
+    let sign_hash = tx.sign_hash;
+
     // Get seed and derive key; sign in a tight scope so the signing key
     // is dropped (and zeroized via k256's ZeroizeOnDrop) immediately after use.
     let signature = {
         let seed = get_seed(state)?;
         let signing_key = derive_private_key(&seed, &request.path)?;
-        // seed is Zeroize+Drop, signing_key has ZeroizeOnDrop
-        sign_eth(&signing_key, &tx.sign_hash, tx.chain_id, tx.tx_type)?
-        // signing_key and seed dropped here, secret material zeroized
+        sign_eth(&signing_key, &sign_hash, tx.chain_id, tx.tx_type)?
     };
 
     state.platform.show_info(true, "Transaction signed");
 
-    Ok(signature)
+    Ok((signature, sign_hash))
 }
 
 /// Handle ClearSignTransaction request.
@@ -716,6 +727,174 @@ pub fn handle_by_contract_address_and_chain(
 
     state.set_context(context.chain_id, context.address);
     buffer.replace(1u8).map_err(|_| EthAppError::InternalError)?;
+    Ok(())
+}
+
+// =============================================================================
+// Attestation Handlers
+// =============================================================================
+
+/// Process InitAttestation — generate attestation keypair from TRNG.
+fn process_init_attestation(
+    state: &mut ServiceState,
+    overwrite: bool,
+) -> Result<(), EthAppError> {
+    // Check if key already exists
+    if !overwrite {
+        if let Ok(Some(bytes)) = state.platform.load_value(crate::platform::PDDB_KEY_ATTESTATION) {
+            if bytes.len() == 32 {
+                return Err(EthAppError::AttestationKeyExists);
+            }
+        }
+    }
+
+    // Generate 32 random bytes from hardware TRNG
+    let mut key_bytes = [0u8; 32];
+    state.platform.rng_fill_bytes(&mut key_bytes)?;
+
+    // Construct signing key (validates the scalar is in range)
+    let signing_key = k256::ecdsa::SigningKey::from_bytes((&key_bytes[..]).into())
+        .map_err(|_| EthAppError::CryptoError)?;
+
+    // Store in PDDB
+    state.platform.store_value(crate::platform::PDDB_KEY_ATTESTATION, &key_bytes)?;
+
+    // Zeroize the raw bytes now that they're stored
+    zeroize::Zeroize::zeroize(&mut key_bytes);
+
+    // Cache in state
+    state.attestation_key = Some(signing_key);
+
+    log::info!("ethapp: Attestation key initialized");
+    Ok(())
+}
+
+/// Process GetAttestationKey — return the compressed attestation public key.
+fn process_get_attestation_key(
+    state: &mut ServiceState,
+) -> Result<AttestationKeyResponse, EthAppError> {
+    let key = state.get_attestation_key()?;
+    let pubkey = get_compressed_pubkey(key);
+    Ok(AttestationKeyResponse { pubkey })
+}
+
+/// Process AttestSign — sign a transaction and produce an attestation co-signature.
+fn process_attest_sign(
+    state: &mut ServiceState,
+    request: &SignTransactionRequest,
+) -> Result<AttestedSignature, EthAppError> {
+    // Sign the transaction (reuses all validation, UI confirmation, etc.)
+    let (tx_sig, sign_hash) = process_sign_transaction_inner(state, request)?;
+
+    // Produce the attestation co-signature
+    let attest_key = state.get_attestation_key()?;
+    let attest_sig = attest_transaction_signature(attest_key, &sign_hash, &tx_sig)?;
+
+    state.record_sign_success();
+    Ok(AttestedSignature { tx_sig, attest_sig })
+}
+
+/// Handle InitAttestation request via serial.
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
+pub fn handle_init_attestation(
+    state: &mut ServiceState,
+    request: &InitAttestationRequest,
+) -> Result<(), EthAppError> {
+    process_init_attestation(state, request.overwrite)
+}
+
+/// Handle GetAttestationKey request via serial.
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
+pub fn handle_get_attestation_key(
+    state: &mut ServiceState,
+    _msg: (),
+) -> Result<AttestationKeyResponse, EthAppError> {
+    process_get_attestation_key(state)
+}
+
+/// Handle AttestSign request via serial.
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
+pub fn handle_attest_sign(
+    state: &mut ServiceState,
+    request: &SignTransactionRequest,
+) -> Result<AttestedSignature, EthAppError> {
+    process_attest_sign(state, request)
+}
+
+/// Handle InitAttestation request via Xous IPC.
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+pub fn handle_init_attestation(
+    state: &mut ServiceState,
+    mut msg: xous::MessageEnvelope,
+) -> Result<(), EthAppError> {
+    use xous_ipc::Buffer;
+
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
+
+    let request: InitAttestationRequest = buffer
+        .to_original()
+        .map_err(|_| EthAppError::SerializationError)?;
+
+    match process_init_attestation(state, request.overwrite) {
+        Ok(()) => {
+            buffer.replace(1u8).map_err(|_| EthAppError::InternalError)?;
+        }
+        Err(e) => write_error_response(&mut buffer, e),
+    }
+    Ok(())
+}
+
+/// Handle GetAttestationKey request via Xous IPC.
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+pub fn handle_get_attestation_key(
+    state: &mut ServiceState,
+    mut msg: xous::MessageEnvelope,
+) -> Result<(), EthAppError> {
+    use xous_ipc::Buffer;
+
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
+
+    match process_get_attestation_key(state) {
+        Ok(resp) => {
+            buffer.replace(resp).map_err(|_| EthAppError::InternalError)?;
+        }
+        Err(e) => write_error_response(&mut buffer, e),
+    }
+    Ok(())
+}
+
+/// Handle AttestSign request via Xous IPC.
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+pub fn handle_attest_sign(
+    state: &mut ServiceState,
+    mut msg: xous::MessageEnvelope,
+) -> Result<(), EthAppError> {
+    use xous_ipc::Buffer;
+
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
+
+    let request: SignTransactionRequest = buffer
+        .to_original()
+        .map_err(|_| EthAppError::SerializationError)?;
+
+    match process_attest_sign(state, &request) {
+        Ok(attested) => {
+            buffer.replace(attested).map_err(|_| EthAppError::InternalError)?;
+        }
+        Err(e) => write_error_response(&mut buffer, e),
+    }
     Ok(())
 }
 
@@ -1229,6 +1408,55 @@ fn process_serial_command(
                     };
                     match process_sign_transaction(state, &request) {
                         Ok(sig) => signature_response(&sig),
+                        Err(e) => vec![error_to_status(&e)],
+                    }
+                }
+                None => vec![STATUS_ERR_INVALID_PATH],
+            }
+        }
+
+        // InitAttestation — payload: [overwrite: u8] (0=no, 1=yes)
+        0x80 => {
+            let overwrite = payload.first().copied().unwrap_or(0) != 0;
+            match process_init_attestation(state, overwrite) {
+                Ok(()) => vec![STATUS_OK],
+                Err(e) => vec![error_to_status(&e)],
+            }
+        }
+
+        // GetAttestationKey
+        0x81 => {
+            match process_get_attestation_key(state) {
+                Ok(resp) => {
+                    let mut out = vec![STATUS_OK];
+                    out.extend_from_slice(&resp.pubkey);
+                    out
+                }
+                Err(e) => vec![error_to_status(&e)],
+            }
+        }
+
+        // AttestSign — payload: [path_bytes...][rlp_tx_bytes...]
+        0x82 => {
+            match parse_bip32_path_and_remainder(payload) {
+                Some((path, tx_data)) => {
+                    let request = SignTransactionRequest {
+                        path,
+                        tx_data: tx_data.to_vec(),
+                    };
+                    match process_attest_sign(state, &request) {
+                        Ok(attested) => {
+                            let mut out = vec![STATUS_OK];
+                            // tx signature: v(8 LE) + r(32) + s(32)
+                            out.extend_from_slice(&attested.tx_sig.v.to_le_bytes());
+                            out.extend_from_slice(&attested.tx_sig.r);
+                            out.extend_from_slice(&attested.tx_sig.s);
+                            // attestation co-signature: v(8 LE) + r(32) + s(32)
+                            out.extend_from_slice(&attested.attest_sig.v.to_le_bytes());
+                            out.extend_from_slice(&attested.attest_sig.r);
+                            out.extend_from_slice(&attested.attest_sig.s);
+                            out
+                        }
                         Err(e) => vec![error_to_status(&e)],
                     }
                 }

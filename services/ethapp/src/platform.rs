@@ -38,6 +38,9 @@ pub const PDDB_DICT: &str = "ethapp.ethereum";
 /// PDDB key name for the encrypted master seed.
 pub const PDDB_KEY_SEED: &str = "master_seed";
 
+/// PDDB key name for the attestation private key (32 bytes, secp256k1 scalar).
+pub const PDDB_KEY_ATTESTATION: &str = "attestation_key";
+
 /// Platform abstraction trait.
 ///
 /// Implementations provide access to system services.

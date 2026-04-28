@@ -12,10 +12,12 @@ use alloc::string::ToString;
 use alloc::format;
 
 use ethapp_common::{
-    AppConfiguration, Bip32Path, ClearSignTransactionRequest, EthAddress, EthAppError,
-    EthAppOp, Hash256, MetadataContext, ProvideDomainNameRequest, ProvideMethodInfoRequest,
-    ProvideNftInfoRequest, ProvideTokenInfoRequest, PublicKeyResponse, SignEip712HashedRequest,
-    SignEip712MessageRequest, SignPersonalMessageRequest, SignTransactionRequest, Signature,
+    AppConfiguration, AttestedSignature, AttestationKeyResponse, Bip32Path,
+    ClearSignTransactionRequest, EthAddress, EthAppError, EthAppOp, Hash256,
+    InitAttestationRequest, MetadataContext, ProvideDomainNameRequest,
+    ProvideMethodInfoRequest, ProvideNftInfoRequest, ProvideTokenInfoRequest,
+    PublicKeyResponse, SignEip712HashedRequest, SignEip712MessageRequest,
+    SignPersonalMessageRequest, SignTransactionRequest, Signature,
 };
 
 #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
@@ -326,6 +328,37 @@ impl EthAppClient {
     pub fn clear_metadata_cache(&self) -> Result<(), ApiError> {
         self.send_scalar(EthAppOp::ClearMetadataCache)?;
         Ok(())
+    }
+
+    // =========================================================================
+    // Attestation
+    // =========================================================================
+
+    /// Initialize the device attestation identity.
+    ///
+    /// Generates a secp256k1 keypair from hardware TRNG and stores it in PDDB.
+    /// Fails with `AttestationKeyExists` if a key already exists and
+    /// `overwrite` is false.
+    #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+    pub fn init_attestation(&self, overwrite: bool) -> Result<(), ApiError> {
+        let request = InitAttestationRequest { overwrite };
+        let _result: u8 = self.send_receive_memory(EthAppOp::InitAttestation, &request)?;
+        Ok(())
+    }
+
+    /// Get the device's attestation public key (33-byte compressed secp256k1).
+    #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+    pub fn get_attestation_key(&self) -> Result<AttestationKeyResponse, ApiError> {
+        self.send_receive_memory::<(), AttestationKeyResponse>(EthAppOp::GetAttestationKey, &())
+    }
+
+    /// Sign a transaction with attestation co-signature.
+    ///
+    /// Returns both the transaction signature and the attestation signature
+    /// over `keccak256(sign_hash || v || r || s)`.
+    #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+    pub fn attest_sign(&self, request: &SignTransactionRequest) -> Result<AttestedSignature, ApiError> {
+        self.send_receive_memory(EthAppOp::AttestSign, request)
     }
 
     // =========================================================================

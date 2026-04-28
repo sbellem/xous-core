@@ -604,6 +604,42 @@ pub fn sign_eip712(
     })
 }
 
+/// Produce an attestation co-signature over a transaction signature.
+///
+/// The attestation binds to the specific transaction by signing:
+///   keccak256(tx_sign_hash || v_le_bytes || r || s)
+///
+/// Uses simple v = 27 + recovery_id (not EIP-155).
+pub fn attest_transaction_signature(
+    attestation_key: &SigningKey,
+    tx_sign_hash: &Hash256,
+    tx_sig: &Signature,
+) -> Result<Signature, EthAppError> {
+    let mut message = Vec::with_capacity(32 + 8 + 32 + 32);
+    message.extend_from_slice(tx_sign_hash);
+    message.extend_from_slice(&tx_sig.v.to_le_bytes());
+    message.extend_from_slice(&tx_sig.r);
+    message.extend_from_slice(&tx_sig.s);
+
+    let hash = keccak256(&message);
+
+    let (sig, recid) = sign_hash_recoverable(attestation_key, &hash)?;
+
+    let r_bytes = sig.r().to_bytes();
+    let s_bytes = sig.s().to_bytes();
+
+    let mut r = [0u8; 32];
+    let mut s = [0u8; 32];
+    r.copy_from_slice(&r_bytes);
+    s.copy_from_slice(&s_bytes);
+
+    Ok(Signature {
+        v: 27u64 + recid.to_byte() as u64,
+        r,
+        s,
+    })
+}
+
 // =============================================================================
 // V Value Computation
 // =============================================================================

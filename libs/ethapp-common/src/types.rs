@@ -406,6 +406,42 @@ impl Default for PublicKeyResponse {
 }
 
 // =============================================================================
+// Attestation
+// =============================================================================
+
+/// Request to initialize device attestation identity.
+#[derive(Debug, Clone, Default, Archive, Serialize, Deserialize)]
+pub struct InitAttestationRequest {
+    /// If true, overwrite an existing attestation key.
+    pub overwrite: bool,
+}
+
+/// Response containing the device's attestation public key.
+#[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize)]
+pub struct AttestationKeyResponse {
+    /// Compressed secp256k1 public key (33 bytes).
+    pub pubkey: [u8; 33],
+}
+
+impl Default for AttestationKeyResponse {
+    fn default() -> Self {
+        Self { pubkey: [0u8; 33] }
+    }
+}
+
+/// Combined transaction signature + attestation co-signature.
+///
+/// The attestation signature is over `keccak256(tx_sign_hash || v || r || s)`,
+/// binding the attestation to the specific transaction signature.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Archive, Serialize, Deserialize, Zeroize)]
+pub struct AttestedSignature {
+    /// The transaction signature (v, r, s).
+    pub tx_sig: Signature,
+    /// The attestation co-signature (v = 27 + recovery_id).
+    pub attest_sig: Signature,
+}
+
+// =============================================================================
 // Chunked Transfer
 // =============================================================================
 

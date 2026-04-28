@@ -22,6 +22,9 @@ const OP_CLEAR_SEED: u8 = 0x63;
 const OP_ENABLE_DANGEROUS_MAINNET: u8 = 0x64;
 const OP_SIGN_PERSONAL_MESSAGE: u8 = 0x20;
 const OP_SIGN_TRANSACTION: u8 = 0x10;
+const OP_INIT_ATTESTATION: u8 = 0x80;
+const OP_GET_ATTESTATION_KEY: u8 = 0x81;
+const OP_ATTEST_SIGN: u8 = 0x82;
 
 #[derive(Parser)]
 #[command(name = "ethcli", about = "Baochip-1x Ethereum hardware wallet CLI", version = env!("ETHCLI_VERSION"))]
@@ -69,6 +72,61 @@ enum Commands {
     /// Session-only (resets on reboot). You assume all risk.
     #[command(alias = "yolo")]
     DangerousMode,
+
+    /// Generate the device attestation identity (one-time).
+    InitAttestation {
+        /// Overwrite existing attestation key
+        #[arg(long)]
+        overwrite: bool,
+    },
+
+    /// Print the device's attestation public key (33-byte compressed secp256k1).
+    GetAttestationKey,
+
+    /// Sign a transaction with attestation co-signature.
+    AttestSignTx {
+        /// Hex-encoded RLP transaction (with or without 0x prefix)
+        rlp_hex: String,
+
+        /// Account index
+        #[arg(long, default_value = "0")]
+        index: u32,
+    },
+
+    /// Verify an attestation co-signature offline (no device needed).
+    VerifyAttestation {
+        /// Attestation public key (33-byte compressed hex)
+        #[arg(long)]
+        pubkey: String,
+
+        /// Transaction sign hash (32-byte hex)
+        #[arg(long)]
+        sign_hash: String,
+
+        /// Transaction signature v
+        #[arg(long)]
+        tx_v: u64,
+
+        /// Transaction signature r (32-byte hex)
+        #[arg(long)]
+        tx_r: String,
+
+        /// Transaction signature s (32-byte hex)
+        #[arg(long)]
+        tx_s: String,
+
+        /// Attestation signature v
+        #[arg(long)]
+        attest_v: u64,
+
+        /// Attestation signature r (32-byte hex)
+        #[arg(long)]
+        attest_r: String,
+
+        /// Attestation signature s (32-byte hex)
+        #[arg(long)]
+        attest_s: String,
+    },
 
     /// Sign an EIP-191 personal message
     SignMessage {
@@ -307,6 +365,15 @@ fn main() -> Result<()> {
         Commands::TokenBalance { ref token, ref rpc_url, address: Some(ref addr), decimals, ref symbol, .. } => {
             return cmd_token_balance_address(rpc_url, token, addr, *decimals, symbol);
         }
+        Commands::VerifyAttestation {
+            ref pubkey, ref sign_hash,
+            tx_v, ref tx_r, ref tx_s,
+            attest_v, ref attest_r, ref attest_s,
+        } => {
+            return cmd_verify_attestation(
+                pubkey, sign_hash, *tx_v, tx_r, tx_s, *attest_v, attest_r, attest_s,
+            );
+        }
         _ => {}
     }
 
@@ -345,9 +412,17 @@ fn main() -> Result<()> {
             &mut transport, &token, &to, amount, &rpc_url, index,
             nonce, chain_id, gas_limit, legacy, broadcast,
         ),
+        Commands::InitAttestation { overwrite } => {
+            cmd_init_attestation(&mut transport, overwrite)
+        }
+        Commands::GetAttestationKey => cmd_get_attestation_key(&mut transport),
+        Commands::AttestSignTx { rlp_hex, index } => {
+            cmd_attest_sign_tx(&mut transport, &rlp_hex, index)
+        }
         Commands::BuildTx { .. } | Commands::Publish { .. }
         | Commands::Balance { address: Some(_), .. }
-        | Commands::TokenBalance { address: Some(_), .. } => unreachable!("handled above"),
+        | Commands::TokenBalance { address: Some(_), .. }
+        | Commands::VerifyAttestation { .. } => unreachable!("handled above"),
     }
 }
 
@@ -1286,6 +1361,163 @@ fn cmd_gen_tx(
     println!("r={}", hex::encode(&r));
     println!("s={}", hex::encode(&s));
     println!("raw:   0x{}", hex::encode(&signed));
+    Ok(())
+}
+
+// =============================================================================
+// attestation: device attestation identity
+// =============================================================================
+
+fn cmd_init_attestation(t: &mut Transport, overwrite: bool) -> Result<()> {
+    let payload = [if overwrite { 0x01 } else { 0x00 }];
+    let (status, _) = t.command(OP_INIT_ATTESTATION, &payload)?;
+    match status {
+        STATUS_OK => println!("Attestation key initialized."),
+        0x06 => bail!("Attestation key already exists. Use --overwrite to replace."),
+        _ => bail!("init-attestation failed (status: 0x{:02x})", status),
+    }
+    Ok(())
+}
+
+fn cmd_get_attestation_key(t: &mut Transport) -> Result<()> {
+    let (status, payload) = t.command(OP_GET_ATTESTATION_KEY, &[])?;
+    if status != STATUS_OK {
+        bail!("get-attestation-key failed (status: 0x{:02x})", status);
+    }
+    if payload.len() < 33 {
+        bail!("unexpected response length: {}", payload.len());
+    }
+    println!("0x{}", hex::encode(&payload[..33]));
+    Ok(())
+}
+
+fn cmd_attest_sign_tx(t: &mut Transport, rlp_hex: &str, index: u32) -> Result<()> {
+    let hex_str = rlp_hex.strip_prefix("0x").unwrap_or(rlp_hex);
+    let tx_data = hex::decode(hex_str)?;
+
+    let tx_type = if !tx_data.is_empty() && tx_data[0] < 0x80 {
+        Some(tx_data[0])
+    } else {
+        None
+    };
+
+    let mut payload = bip44_payload(0, 0, index);
+    payload.extend_from_slice(&tx_data);
+
+    let (status, resp) = t.command(OP_ATTEST_SIGN, &payload)?;
+    if status != STATUS_OK {
+        bail!("attest-sign-tx failed (status: 0x{:02x})", status);
+    }
+
+    // Response: tx_sig (72 bytes: v:8 + r:32 + s:32) + attest_sig (72 bytes)
+    if resp.len() < 144 {
+        bail!("unexpected response length: {} (expected 144)", resp.len());
+    }
+
+    // Parse tx signature
+    let tx_v = u64::from_le_bytes(resp[0..8].try_into().unwrap());
+    let mut tx_r = [0u8; 32];
+    let mut tx_s = [0u8; 32];
+    tx_r.copy_from_slice(&resp[8..40]);
+    tx_s.copy_from_slice(&resp[40..72]);
+
+    // Parse attestation signature
+    let attest_v = u64::from_le_bytes(resp[72..80].try_into().unwrap());
+    let mut attest_r = [0u8; 32];
+    let mut attest_s = [0u8; 32];
+    attest_r.copy_from_slice(&resp[80..112]);
+    attest_s.copy_from_slice(&resp[112..144]);
+
+    println!("tx_v={}", tx_v);
+    println!("tx_r={}", hex::encode(&tx_r));
+    println!("tx_s={}", hex::encode(&tx_s));
+    println!("attest_v={}", attest_v);
+    println!("attest_r={}", hex::encode(&attest_r));
+    println!("attest_s={}", hex::encode(&attest_s));
+
+    // Assemble broadcastable signed RLP from the tx signature
+    match assemble_signed_tx(&tx_data, tx_type, tx_v, &tx_r, &tx_s) {
+        Ok(signed) => println!("raw: 0x{}", hex::encode(&signed)),
+        Err(e) => eprintln!("warning: could not assemble signed RLP ({})", e),
+    }
+
+    Ok(())
+}
+
+fn cmd_verify_attestation(
+    pubkey_hex: &str,
+    sign_hash_hex: &str,
+    tx_v: u64,
+    tx_r_hex: &str,
+    tx_s_hex: &str,
+    attest_v: u64,
+    attest_r_hex: &str,
+    attest_s_hex: &str,
+) -> Result<()> {
+    use k256::ecdsa::{RecoveryId, Signature as K256Sig, VerifyingKey};
+    use tiny_keccak::{Hasher, Keccak};
+
+    // Parse inputs
+    let pubkey_bytes = hex::decode(pubkey_hex.strip_prefix("0x").unwrap_or(pubkey_hex))?;
+    if pubkey_bytes.len() != 33 {
+        bail!("pubkey must be 33 bytes (compressed), got {}", pubkey_bytes.len());
+    }
+
+    let sign_hash = hex::decode(sign_hash_hex.strip_prefix("0x").unwrap_or(sign_hash_hex))?;
+    if sign_hash.len() != 32 {
+        bail!("sign_hash must be 32 bytes, got {}", sign_hash.len());
+    }
+
+    let tx_r = hex::decode(tx_r_hex.strip_prefix("0x").unwrap_or(tx_r_hex))?;
+    let tx_s = hex::decode(tx_s_hex.strip_prefix("0x").unwrap_or(tx_s_hex))?;
+    let attest_r = hex::decode(attest_r_hex.strip_prefix("0x").unwrap_or(attest_r_hex))?;
+    let attest_s = hex::decode(attest_s_hex.strip_prefix("0x").unwrap_or(attest_s_hex))?;
+
+    if tx_r.len() != 32 || tx_s.len() != 32 || attest_r.len() != 32 || attest_s.len() != 32 {
+        bail!("r and s values must be 32 bytes each");
+    }
+
+    // Reconstruct the attestation message: keccak256(sign_hash || v_le || r || s)
+    let mut message = Vec::with_capacity(32 + 8 + 32 + 32);
+    message.extend_from_slice(&sign_hash);
+    message.extend_from_slice(&tx_v.to_le_bytes());
+    message.extend_from_slice(&tx_r);
+    message.extend_from_slice(&tx_s);
+
+    let mut keccak = Keccak::v256();
+    let mut hash = [0u8; 32];
+    keccak.update(&message);
+    keccak.finalize(&mut hash);
+
+    // Recover the signer from the attestation signature
+    let recovery_id = match attest_v {
+        27 => RecoveryId::new(false, false),
+        28 => RecoveryId::new(true, false),
+        v => bail!("invalid attestation v value: {} (expected 27 or 28)", v),
+    };
+
+    let mut sig_bytes = [0u8; 64];
+    sig_bytes[..32].copy_from_slice(&attest_r);
+    sig_bytes[32..].copy_from_slice(&attest_s);
+    let sig = K256Sig::from_bytes((&sig_bytes[..]).into())
+        .map_err(|e| anyhow::anyhow!("invalid attestation signature: {}", e))?;
+
+    let recovered = VerifyingKey::recover_from_prehash(&hash, &sig, recovery_id)
+        .map_err(|e| anyhow::anyhow!("signature recovery failed: {}", e))?;
+
+    let recovered_bytes = recovered.to_sec1_bytes();
+    let expected = VerifyingKey::from_sec1_bytes(&pubkey_bytes)
+        .map_err(|e| anyhow::anyhow!("invalid pubkey: {}", e))?;
+    let expected_bytes = expected.to_sec1_bytes();
+
+    if recovered_bytes == expected_bytes {
+        println!("VALID: attestation matches device pubkey 0x{}", hex::encode(&pubkey_bytes));
+    } else {
+        println!("INVALID: recovered signer 0x{} does not match expected 0x{}",
+            hex::encode(&*recovered_bytes), hex::encode(&pubkey_bytes));
+        std::process::exit(1);
+    }
+
     Ok(())
 }
 

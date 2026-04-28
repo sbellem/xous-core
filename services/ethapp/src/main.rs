@@ -180,6 +180,17 @@ fn handle_message(
             handlers::handle_enable_dangerous_mainnet(state, msg)?;
         }
 
+        // === Attestation ===
+        EthAppOp::InitAttestation => {
+            handlers::handle_init_attestation(state, msg)?;
+        }
+        EthAppOp::GetAttestationKey => {
+            handlers::handle_get_attestation_key(state, msg)?;
+        }
+        EthAppOp::AttestSign => {
+            handlers::handle_attest_sign(state, msg)?;
+        }
+
         // === Serial Transport ===
         EthAppOp::SerialFrame => {
             handlers::handle_serial_frame(state, msg)?;

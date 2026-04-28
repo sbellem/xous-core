@@ -96,6 +96,12 @@ pub enum EthAppError {
 
     /// Cryptographic operation failed.
     CryptoError = 0x1A,
+
+    /// Attestation key already exists (use overwrite to replace).
+    AttestationKeyExists = 0x1B,
+
+    /// Attestation key not initialized.
+    AttestationNotInitialized = 0x1C,
 }
 
 impl EthAppError {
@@ -167,6 +173,8 @@ impl fmt::Display for EthAppError {
             EthAppError::StorageError => write!(f, "Storage error"),
             EthAppError::UiError => write!(f, "UI error"),
             EthAppError::CryptoError => write!(f, "Crypto error"),
+            EthAppError::AttestationKeyExists => write!(f, "Attestation key exists"),
+            EthAppError::AttestationNotInitialized => write!(f, "Attestation not initialized"),
         }
     }
 }
@@ -180,6 +188,8 @@ mod tests {
         assert_eq!(EthAppError::Success.code(), 0x00);
         assert_eq!(EthAppError::RejectedByUser.code(), 0x01);
         assert_eq!(EthAppError::CryptoError.code(), 0x1A);
+        assert_eq!(EthAppError::AttestationKeyExists.code(), 0x1B);
+        assert_eq!(EthAppError::AttestationNotInitialized.code(), 0x1C);
     }
 
     #[test]
@@ -232,7 +242,8 @@ mod tests {
             EthAppError::InvalidTypedData, EthAppError::InvalidState, EthAppError::ChunkError,
             EthAppError::BufferOverflow, EthAppError::ServiceConnectionFailed,
             EthAppError::SerializationError, EthAppError::StorageError, EthAppError::UiError,
-            EthAppError::CryptoError,
+            EthAppError::CryptoError, EthAppError::AttestationKeyExists,
+            EthAppError::AttestationNotInitialized,
         ];
         let mut codes: Vec<u32> = errors.iter().map(|e| e.code()).collect();
         let len_before = codes.len();
@@ -261,8 +272,8 @@ mod tests {
 
     #[test]
     fn test_error_code_contiguous() {
-        // Error codes should be 0x00 through 0x1A contiguously
+        // Error codes should be 0x00 through 0x1C contiguously
         assert_eq!(EthAppError::Success.code(), 0x00);
-        assert_eq!(EthAppError::CryptoError.code(), 0x1A);
+        assert_eq!(EthAppError::AttestationNotInitialized.code(), 0x1C);
     }
 }

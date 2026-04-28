@@ -33,6 +33,8 @@ pub const STATUS_ERR_REJECTED: u8 = 0x02;
 pub const STATUS_ERR_NO_SEED: u8 = 0x03;
 pub const STATUS_ERR_INVALID_PATH: u8 = 0x04;
 pub const STATUS_ERR_CRYPTO: u8 = 0x05;
+pub const STATUS_ERR_ATTEST_EXISTS: u8 = 0x06;
+pub const STATUS_ERR_NO_ATTEST: u8 = 0x07;
 pub const STATUS_ERR_INTERNAL: u8 = 0xFF;
 
 /// State machine for parsing incoming serial frames.
@@ -132,6 +134,8 @@ pub fn error_to_status(err: &EthAppError) -> u8 {
         EthAppError::UnsupportedOperation => STATUS_ERR_NO_SEED,
         EthAppError::InvalidDerivationPath => STATUS_ERR_INVALID_PATH,
         EthAppError::CryptoError => STATUS_ERR_CRYPTO,
+        EthAppError::AttestationKeyExists => STATUS_ERR_ATTEST_EXISTS,
+        EthAppError::AttestationNotInitialized => STATUS_ERR_NO_ATTEST,
         _ => STATUS_ERR_INTERNAL,
     }
 }

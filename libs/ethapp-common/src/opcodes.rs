@@ -133,6 +133,22 @@ pub enum EthAppOp {
     /// Returns: success via scalar.
     EnableDangerousMainnet = 0x64,
 
+    // === Attestation (0x80-0x8F) ===
+
+    /// Initialize device attestation identity (one-time keypair generation).
+    /// Input: InitAttestationRequest via memory message.
+    /// Returns: success or AttestationKeyExists error.
+    InitAttestation = 0x80,
+
+    /// Get the attestation public key (33-byte compressed secp256k1).
+    /// Returns: AttestationKeyResponse via memory message.
+    GetAttestationKey = 0x81,
+
+    /// Sign a transaction AND produce an attestation co-signature.
+    /// Input: SignTransactionRequest via memory message.
+    /// Returns: AttestedSignature (tx sig + attestation sig) via memory message.
+    AttestSign = 0x82,
+
     // === Serial Transport (0x70-0x7F) ===
 
     /// Process a raw serial frame from the host CLI.
@@ -240,6 +256,11 @@ mod tests {
         assert_eq!(EthAppOp::GetPublicKey.to_u32().unwrap(), 0x50);
         assert_eq!(EthAppOp::GetAddress.to_u32().unwrap(), 0x51);
 
+        // Attestation: 0x80-0x8F
+        assert_eq!(EthAppOp::InitAttestation.to_u32().unwrap(), 0x80);
+        assert_eq!(EthAppOp::GetAttestationKey.to_u32().unwrap(), 0x81);
+        assert_eq!(EthAppOp::AttestSign.to_u32().unwrap(), 0x82);
+
         // Ping: 0xFF
         assert_eq!(EthAppOp::Ping.to_u32().unwrap(), 0xFF);
     }
@@ -259,6 +280,7 @@ mod tests {
             EthAppOp::SetSeed, EthAppOp::ImportMnemonic,
             EthAppOp::GenerateMnemonic, EthAppOp::ClearSeed,
             EthAppOp::EnableDangerousMainnet,
+            EthAppOp::InitAttestation, EthAppOp::GetAttestationKey, EthAppOp::AttestSign,
             EthAppOp::SerialFrame,
             EthAppOp::ClearMetadataCache, EthAppOp::GetStats, EthAppOp::Ping,
         ];

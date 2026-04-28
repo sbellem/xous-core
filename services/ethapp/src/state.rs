@@ -43,6 +43,10 @@ pub struct ServiceState {
     /// Imported seed (set at runtime via SetSeed opcode).
     pub imported_seed: Option<crate::crypto::Seed>,
 
+    /// Cached attestation signing key (loaded from PDDB on first use).
+    /// Independent of wallet seed — survives seed wipes.
+    pub attestation_key: Option<k256::ecdsa::SigningKey>,
+
     /// DANGEROUS: when true, allows signing on mainnet chains even on
     /// displayless dev-mode/autoapprove builds. Must be explicitly
     /// enabled per session via the EnableDangerousMainnet opcode.
@@ -89,6 +93,7 @@ impl ServiceState {
             #[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
             platform: MockPlatform::new(),
             imported_seed: None,
+            attestation_key: None,
             dangerous_mainnet: false,
             config: AppConfiguration {
                 version_major: 0,
@@ -112,6 +117,26 @@ impl ServiceState {
     /// Initialize platform connections.
     pub fn init_platform(&mut self) -> Result<(), EthAppError> {
         self.platform.init()
+    }
+
+    // =========================================================================
+    // Attestation Key
+    // =========================================================================
+
+    /// Get the attestation signing key, loading from PDDB if not cached.
+    pub fn get_attestation_key(&mut self) -> Result<&k256::ecdsa::SigningKey, EthAppError> {
+        if self.attestation_key.is_none() {
+            if let Ok(Some(bytes)) = self.platform.load_value(crate::platform::PDDB_KEY_ATTESTATION) {
+                if bytes.len() == 32 {
+                    if let Ok(key) = k256::ecdsa::SigningKey::from_bytes(
+                        (&bytes[..]).into()
+                    ) {
+                        self.attestation_key = Some(key);
+                    }
+                }
+            }
+        }
+        self.attestation_key.as_ref().ok_or(EthAppError::AttestationNotInitialized)
     }
 
     // =========================================================================
