@@ -22,18 +22,55 @@ HOST (untrusted)                    DEVICE (trusted)
 The device holds the seed and signs; the host builds transactions and
 talks to the chain. Keys never leave the device.
 
-## ethcli - Host CLI
+## Building
 
-### Building
+### Prerequisites
+
+Install [Guix](https://guix.gnu.org/). All dependencies (Rust
+toolchain, libudev, cross-compilation sysroots) are provided by the
+reproducible Guix shell.
+
+### Enter the dev shell
 
 ```bash
-# Via Nix (recommended, reproducible):
-nix build .#ethcli
+make -C guix shell
+```
 
-# Via Cargo (needs network + libudev on Linux):
+This drops you into a reproducible environment with all build tools
+available. All commands below assume you are inside this shell.
+
+### Build ethcli (host CLI)
+
+```bash
 cd services/ethapp/tools/ethcli
 cargo build --release
 ```
+
+The binary is at `target/release/ethcli`.
+
+### Build device firmware
+
+```bash
+# From the repo root:
+cargo xtask dabao ethapp-test --no-verify
+```
+
+This produces the dabao firmware image with ethapp and the test suite.
+
+### Reproducible builds via Guix (alternative)
+
+```bash
+# ethcli (host binary):
+make -C guix ethcli
+
+# dabao firmware with ethapp:
+make -C guix dabao-ethapp
+
+# Pin the output so it survives garbage collection:
+make -C guix ethcli ROOT=ethcli
+```
+
+## ethcli - Host CLI
 
 ### Device connection
 
@@ -162,6 +199,34 @@ ethcli sign-message "Hello Ethereum" --index 0
 ethcli sign-tx 0xRlpHex --index 0
 ```
 
+#### Device attestation
+
+Prove that a transaction was signed on a specific Baochip device.
+See [ATTESTATION.md](ATTESTATION.md) for the trust model.
+
+```bash
+# One-time: generate attestation identity on device
+ethcli init-attestation
+
+# Export the attestation public key (share with verifiers)
+ethcli get-attestation-key
+# -> 0x02abc...
+
+# Sign a transaction with attestation co-signature
+ethcli attest-sign-tx 0xUnsignedRlp --index 0
+# -> tx: v=37 r=... s=...
+# -> attest: v=27 r=... s=...
+# -> raw: 0x...  (broadcastable signed tx)
+
+# Offline verification (no device needed)
+ethcli verify-attestation \
+  --pubkey 0x02abc... \
+  --sign-hash 0xdef... \
+  --tx-v 37 --tx-r ... --tx-s ... \
+  --attest-v 27 --attest-r ... --attest-s ...
+# -> VALID: attestation matches device pubkey 0x02abc...
+```
+
 #### Dangerous mode
 
 On displayless dev boards (dabao), mainnet signing is blocked by default
@@ -193,6 +258,10 @@ ethcli dangerous-mode  # alias: ethcli yolo
 | `build-tx` | no | no | Offline unsigned RLP |
 | `send-token` | yes | yes | Build + sign + broadcast ERC-20 transfer |
 | `publish` | no | yes | Broadcast signed tx |
+| `init-attestation` | yes | no | Generate device attestation key |
+| `get-attestation-key` | yes | no | Print attestation pubkey |
+| `attest-sign-tx` | yes | no | Sign tx with attestation co-sig |
+| `verify-attestation` | no | no | Offline attestation verification |
 
 ## ethapp - Device Service
 
@@ -204,6 +273,7 @@ ethcli dangerous-mode  # alias: ethcli yolo
 - **Message signing**: EIP-191 personal messages, EIP-712 typed data
 - **Clear signing**: ERC-20 `transfer()` and `approve()` decoded for display
 - **Token metadata**: Cached token info (ticker, decimals) for clear-signed display
+- **Device attestation**: Per-device secp256k1 identity co-signs transactions
 - **Persistent storage**: Optional PDDB integration (encrypted at rest)
 
 ### Cargo features
@@ -215,16 +285,6 @@ ethcli dangerous-mode  # alias: ethcli yolo
 | `blind-signing` | Allow pre-hashed EIP-712 | Reduces visibility |
 | `board-dabao` | Dabao dev board target | - |
 | `hosted-dabao` | Host-emulated dabao | - |
-
-### Building firmware
-
-```bash
-# Dabao dev board with ethapp test suite
-xous-build dabao ethapp-test --no-verify
-
-# Via Nix
-nix build .#dabao-ethapp
-```
 
 ### Transaction types
 
@@ -279,7 +339,9 @@ This is a developer preview. Key gaps before production use:
 
 1. **No trusted display on hardware** (C1) - the single biggest gap
 2. **Token metadata unverified** (C2) - attacker can spoof tickers
-3. **No firmware attestation** (C3)
-4. **No PIN protection** (C4)
+3. **No PIN protection** (C4)
 
-See [STATUS.md](STATUS.md) for the full assessment and roadmap.
+Device attestation is implemented as a proof-of-concept. In developer
+mode, it relies on trust-on-first-use. Production requires a secret
+firmware signing key. See [ATTESTATION.md](ATTESTATION.md) for the
+full trust model and [STATUS.md](STATUS.md) for the production roadmap.
