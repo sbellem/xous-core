@@ -1505,16 +1505,16 @@ fn cmd_verify_attestation(
     let recovered = VerifyingKey::recover_from_prehash(&hash, &sig, recovery_id)
         .map_err(|e| anyhow::anyhow!("signature recovery failed: {}", e))?;
 
-    let recovered_bytes = recovered.to_sec1_bytes();
+    let recovered_point = recovered.to_encoded_point(true);
     let expected = VerifyingKey::from_sec1_bytes(&pubkey_bytes)
         .map_err(|e| anyhow::anyhow!("invalid pubkey: {}", e))?;
-    let expected_bytes = expected.to_sec1_bytes();
+    let expected_point = expected.to_encoded_point(true);
 
-    if recovered_bytes == expected_bytes {
+    if recovered_point == expected_point {
         println!("VALID: attestation matches device pubkey 0x{}", hex::encode(&pubkey_bytes));
     } else {
         println!("INVALID: recovered signer 0x{} does not match expected 0x{}",
-            hex::encode(&*recovered_bytes), hex::encode(&pubkey_bytes));
+            hex::encode(recovered_point.as_bytes()), hex::encode(&pubkey_bytes));
         std::process::exit(1);
     }
 
