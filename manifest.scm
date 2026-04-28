@@ -7,6 +7,7 @@
              (gnu packages linux)
              (gnu packages nss)
              (gnu packages pkg-config)
+             (gnu packages tls)
              (gnu packages compression))
 
 (packages->manifest
@@ -18,6 +19,7 @@
        gzip
        bash
        nss-certs
+       openssl
        coreutils
        grep
        findutils
