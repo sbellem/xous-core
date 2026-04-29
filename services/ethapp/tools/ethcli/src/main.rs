@@ -932,8 +932,9 @@ fn print_token_balance(
     decimals: u8,
     symbol: &str,
 ) -> Result<()> {
-    let token_clean = token.strip_prefix("0x").unwrap_or(token)
-        .strip_prefix("0X").unwrap_or(token);
+    let token_clean = token.strip_prefix("0x")
+        .or_else(|| token.strip_prefix("0X"))
+        .unwrap_or(token);
     let token_addr = hex::decode(token_clean)?;
     if token_addr.len() != 20 {
         bail!("invalid token address: need 20 bytes, got {}", token_addr.len());
