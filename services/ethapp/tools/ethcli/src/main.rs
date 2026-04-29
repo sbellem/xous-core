@@ -42,6 +42,17 @@ enum Commands {
     /// Print a step-by-step guide for funding and transferring USDC on Sepolia testnet.
     Guide,
 
+    /// Display an Ethereum address as a QR code in the terminal.
+    Qr {
+        /// Account index (m/44'/60'/0'/0/<index>). Ignored if --address is set.
+        #[arg(long, default_value = "0")]
+        index: u32,
+
+        /// Show QR for this address instead of the device's. No device needed.
+        #[arg(long)]
+        address: Option<String>,
+    },
+
     /// Health check
     Ping,
 
@@ -355,6 +366,9 @@ fn main() -> Result<()> {
         Commands::Guide => {
             return cmd_guide();
         }
+        Commands::Qr { address: Some(ref addr), .. } => {
+            return cmd_qr_address(addr);
+        }
         Commands::BuildTx {
             to, value, nonce, chain_id, gas_price, gas_limit, data,
         } => {
@@ -425,10 +439,14 @@ fn main() -> Result<()> {
         Commands::AttestSignTx { rlp_hex, index } => {
             cmd_attest_sign_tx(&mut transport, &rlp_hex, index)
         }
+        Commands::Qr { index, address: None } => {
+            cmd_qr_device(&mut transport, index)
+        }
         Commands::Guide
         | Commands::BuildTx { .. } | Commands::Publish { .. }
         | Commands::Balance { address: Some(_), .. }
         | Commands::TokenBalance { address: Some(_), .. }
+        | Commands::Qr { address: Some(_), .. }
         | Commands::VerifyAttestation { .. } => unreachable!("handled above"),
     }
 }
@@ -1368,6 +1386,83 @@ fn cmd_gen_tx(
     println!("r={}", hex::encode(&r));
     println!("s={}", hex::encode(&s));
     println!("raw:   0x{}", hex::encode(&signed));
+    Ok(())
+}
+
+// =============================================================================
+// qr: display address as QR code
+// =============================================================================
+
+fn cmd_qr_device(t: &mut Transport, index: u32) -> Result<()> {
+    let path = bip44_payload(0, 0, index);
+    let (status, payload) = t.command(OP_GET_ADDRESS, &path)?;
+    if status != STATUS_OK || payload.len() < 20 {
+        bail!("failed to get address from device (status: 0x{:02x})", status);
+    }
+    let addr = format!("0x{}", hex::encode(&payload[..20]));
+    print_qr(&addr)
+}
+
+fn cmd_qr_address(address: &str) -> Result<()> {
+    let addr = if address.starts_with("0x") || address.starts_with("0X") {
+        address.to_string()
+    } else {
+        format!("0x{}", address)
+    };
+    print_qr(&addr)
+}
+
+fn print_qr(address: &str) -> Result<()> {
+    use qrcode::{QrCode, EcLevel};
+
+    let code = QrCode::with_error_correction_level(address, EcLevel::M)
+        .map_err(|e| anyhow::anyhow!("QR encode failed: {}", e))?;
+
+    let modules = code.to_colors();
+    let width = code.width();
+
+    println!();
+    println!("  {}", address);
+    println!();
+
+    // Render using Unicode upper/lower half blocks for 2 rows per line.
+    // Black module = dark, white module = light.
+    // U+2588 = full block, U+2580 = upper half, U+2584 = lower half, space = empty
+    //
+    // With inverted colors (dark terminal): dark=space, light=block
+    // We add a quiet zone (1 module border).
+
+    let get = |r: i32, c: i32| -> bool {
+        if r < 0 || c < 0 || r >= width as i32 || c >= width as i32 {
+            false // quiet zone = light
+        } else {
+            modules[r as usize * width + c as usize].select(true, false)
+        }
+    };
+
+    // Process two rows at a time
+    let mut r: i32 = -1;
+    while r < width as i32 + 1 {
+        print!("    "); // left margin
+        for c in -1..width as i32 + 1 {
+            let top = get(r, c);      // true = dark
+            let bot = get(r + 1, c);  // true = dark
+            // Terminal is typically dark background, so:
+            // dark+dark = space, light+light = full block,
+            // dark+light = lower half, light+dark = upper half
+            let ch = match (top, bot) {
+                (true, true) => ' ',
+                (false, false) => '\u{2588}',
+                (true, false) => '\u{2584}',
+                (false, true) => '\u{2580}',
+            };
+            print!("{ch}");
+        }
+        println!();
+        r += 2;
+    }
+
+    println!();
     Ok(())
 }
 
