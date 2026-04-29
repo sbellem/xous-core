@@ -35,6 +35,9 @@ pub const STATUS_ERR_INVALID_PATH: u8 = 0x04;
 pub const STATUS_ERR_CRYPTO: u8 = 0x05;
 pub const STATUS_ERR_ATTEST_EXISTS: u8 = 0x06;
 pub const STATUS_ERR_NO_ATTEST: u8 = 0x07;
+pub const STATUS_ERR_IMPORT_EXISTS: u8 = 0x08;
+pub const STATUS_ERR_NO_IMPORT: u8 = 0x09;
+pub const STATUS_ERR_DECRYPT: u8 = 0x0A;
 pub const STATUS_ERR_INTERNAL: u8 = 0xFF;
 
 /// State machine for parsing incoming serial frames.
@@ -136,6 +139,9 @@ pub fn error_to_status(err: &EthAppError) -> u8 {
         EthAppError::CryptoError => STATUS_ERR_CRYPTO,
         EthAppError::AttestationKeyExists => STATUS_ERR_ATTEST_EXISTS,
         EthAppError::AttestationNotInitialized => STATUS_ERR_NO_ATTEST,
+        EthAppError::ImportKeyExists => STATUS_ERR_IMPORT_EXISTS,
+        EthAppError::ImportKeyNotInitialized => STATUS_ERR_NO_IMPORT,
+        EthAppError::DecryptionFailed => STATUS_ERR_DECRYPT,
         _ => STATUS_ERR_INTERNAL,
     }
 }

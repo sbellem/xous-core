@@ -899,6 +899,184 @@ pub fn handle_attest_sign(
 }
 
 // =============================================================================
+// Encrypted Import Handlers
+// =============================================================================
+
+/// Process InitImportKey — generate import keypair from TRNG.
+fn process_init_import_key(
+    state: &mut ServiceState,
+    overwrite: bool,
+) -> Result<(), EthAppError> {
+    if !overwrite {
+        if let Ok(Some(bytes)) = state.platform.load_value(crate::platform::PDDB_KEY_IMPORT) {
+            if bytes.len() == 32 {
+                return Err(EthAppError::ImportKeyExists);
+            }
+        }
+    }
+
+    let mut key_bytes = [0u8; 32];
+    state.platform.rng_fill_bytes(&mut key_bytes)?;
+
+    let signing_key = k256::ecdsa::SigningKey::from_bytes((&key_bytes[..]).into())
+        .map_err(|_| EthAppError::CryptoError)?;
+
+    state.platform.store_value(crate::platform::PDDB_KEY_IMPORT, &key_bytes)?;
+    zeroize::Zeroize::zeroize(&mut key_bytes);
+
+    state.import_key = Some(signing_key);
+    log::info!("ethapp: Import key initialized");
+    Ok(())
+}
+
+/// Process GetImportKey — return the compressed import public key.
+fn process_get_import_key(
+    state: &mut ServiceState,
+) -> Result<ethapp_common::ImportKeyResponse, EthAppError> {
+    let key = state.get_import_key()?;
+    let pubkey = get_compressed_pubkey(key);
+    Ok(ethapp_common::ImportKeyResponse { pubkey })
+}
+
+/// Process ImportEncrypted — decrypt ECIES payload and import the mnemonic.
+fn process_import_encrypted(
+    state: &mut ServiceState,
+    payload: &[u8],
+) -> Result<(), EthAppError> {
+    let import_key = state.get_import_key()?.clone();
+
+    // Decrypt the ECIES payload
+    let mut plaintext = crate::crypto::ecies_decrypt(&import_key, payload)?;
+
+    // Validate: must be valid UTF-8 with 12 or 24 whitespace-separated words
+    let mnemonic_str = core::str::from_utf8(&plaintext)
+        .map_err(|_| EthAppError::InvalidData)?;
+    let word_count = mnemonic_str.split_whitespace().count();
+    if word_count != 12 && word_count != 24 {
+        zeroize::Zeroize::zeroize(&mut plaintext);
+        return Err(EthAppError::InvalidData);
+    }
+
+    // Derive seed from mnemonic (same as plaintext import)
+    let seed = crate::crypto::seed_from_mnemonic(&plaintext);
+    let _ = state.platform.store_value(crate::platform::PDDB_KEY_SEED, seed.as_bytes());
+    state.imported_seed = Some(seed);
+
+    // Zeroize plaintext mnemonic
+    zeroize::Zeroize::zeroize(&mut plaintext);
+
+    log::info!("ethapp: Encrypted mnemonic imported ({} words)", word_count);
+    Ok(())
+}
+
+/// Handle InitImportKey via Xous IPC.
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+pub fn handle_init_import_key(
+    state: &mut ServiceState,
+    mut msg: xous::MessageEnvelope,
+) -> Result<(), EthAppError> {
+    use ethapp_common::InitImportKeyRequest;
+    use xous_ipc::Buffer;
+
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
+
+    let request: InitImportKeyRequest = buffer
+        .to_original()
+        .map_err(|_| EthAppError::SerializationError)?;
+
+    match process_init_import_key(state, request.overwrite) {
+        Ok(()) => {
+            buffer.replace(1u8).map_err(|_| EthAppError::InternalError)?;
+        }
+        Err(e) => write_error_response(&mut buffer, e),
+    }
+    Ok(())
+}
+
+/// Handle GetImportKey via Xous IPC.
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+pub fn handle_get_import_key(
+    state: &mut ServiceState,
+    mut msg: xous::MessageEnvelope,
+) -> Result<(), EthAppError> {
+    use xous_ipc::Buffer;
+
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
+
+    match process_get_import_key(state) {
+        Ok(resp) => {
+            buffer.replace(resp).map_err(|_| EthAppError::InternalError)?;
+        }
+        Err(e) => write_error_response(&mut buffer, e),
+    }
+    Ok(())
+}
+
+/// Handle ImportEncrypted via Xous IPC.
+#[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
+pub fn handle_import_encrypted(
+    state: &mut ServiceState,
+    mut msg: xous::MessageEnvelope,
+) -> Result<(), EthAppError> {
+    use ethapp_common::EncryptedMnemonicImport;
+    use xous_ipc::Buffer;
+
+    let mut buffer = unsafe {
+        Buffer::from_memory_message_mut(
+            msg.body.memory_message_mut().ok_or(EthAppError::InvalidData)?,
+        )
+    };
+
+    let import: EncryptedMnemonicImport = buffer
+        .to_original()
+        .map_err(|_| EthAppError::SerializationError)?;
+
+    let payload = &import.data[..import.len as usize];
+    match process_import_encrypted(state, payload) {
+        Ok(()) => {
+            buffer.replace(1u8).map_err(|_| EthAppError::InternalError)?;
+        }
+        Err(e) => write_error_response(&mut buffer, e),
+    }
+    Ok(())
+}
+
+/// Handle InitImportKey (host testing).
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
+pub fn handle_init_import_key(
+    state: &mut ServiceState,
+    request: &ethapp_common::InitImportKeyRequest,
+) -> Result<(), EthAppError> {
+    process_init_import_key(state, request.overwrite)
+}
+
+/// Handle GetImportKey (host testing).
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
+pub fn handle_get_import_key(
+    state: &mut ServiceState,
+    _msg: (),
+) -> Result<ethapp_common::ImportKeyResponse, EthAppError> {
+    process_get_import_key(state)
+}
+
+/// Handle ImportEncrypted (host testing).
+#[cfg(not(any(target_os = "xous", feature = "hosted-dabao")))]
+pub fn handle_import_encrypted(
+    state: &mut ServiceState,
+    payload: &[u8],
+) -> Result<(), EthAppError> {
+    process_import_encrypted(state, payload)
+}
+
+// =============================================================================
 // Key Operation Handlers
 // =============================================================================
 
@@ -1461,6 +1639,35 @@ fn process_serial_command(
                     }
                 }
                 None => vec![STATUS_ERR_INVALID_PATH],
+            }
+        }
+
+        // InitImportKey — payload: [overwrite: u8]
+        0x65 => {
+            let overwrite = payload.first().copied().unwrap_or(0) != 0;
+            match process_init_import_key(state, overwrite) {
+                Ok(()) => vec![STATUS_OK],
+                Err(e) => vec![error_to_status(&e)],
+            }
+        }
+
+        // GetImportKey
+        0x66 => {
+            match process_get_import_key(state) {
+                Ok(resp) => {
+                    let mut out = vec![STATUS_OK];
+                    out.extend_from_slice(&resp.pubkey);
+                    out
+                }
+                Err(e) => vec![error_to_status(&e)],
+            }
+        }
+
+        // ImportEncrypted — payload: [e_pub:33][ciphertext+tag]
+        0x67 => {
+            match process_import_encrypted(state, payload) {
+                Ok(()) => vec![STATUS_OK],
+                Err(e) => vec![error_to_status(&e)],
             }
         }
 

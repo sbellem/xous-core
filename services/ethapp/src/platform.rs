@@ -41,6 +41,9 @@ pub const PDDB_KEY_SEED: &str = "master_seed";
 /// PDDB key name for the attestation private key (32 bytes, secp256k1 scalar).
 pub const PDDB_KEY_ATTESTATION: &str = "attestation_key";
 
+/// PDDB key name for the import private key (32 bytes, secp256k1 scalar for ECIES).
+pub const PDDB_KEY_IMPORT: &str = "import_key";
+
 /// Platform abstraction trait.
 ///
 /// Implementations provide access to system services.

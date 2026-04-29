@@ -22,7 +22,12 @@ anyhow = "1"
 ureq = { version = "2", features = ["json", "tls"] }
 serde_json = "1"
 # For verify-attestation (offline signature verification)
-k256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "ecdh", "arithmetic"] }
 tiny-keccak = { version = "2.0", features = ["keccak"] }
+# For encrypted mnemonic import (ECIES)
+chacha20poly1305 = "0.10"
+sha2 = "0.10"
+hkdf = "0.12"
+rand_core = { version = "0.6", features = ["getrandom"] }
 # For QR code display in terminal
 qrcode = { version = "0.14", default-features = false }

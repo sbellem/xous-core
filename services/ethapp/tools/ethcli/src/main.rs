@@ -22,6 +22,9 @@ const OP_CLEAR_SEED: u8 = 0x63;
 const OP_ENABLE_DANGEROUS_MAINNET: u8 = 0x64;
 const OP_SIGN_PERSONAL_MESSAGE: u8 = 0x20;
 const OP_SIGN_TRANSACTION: u8 = 0x10;
+const OP_INIT_IMPORT_KEY: u8 = 0x65;
+const OP_GET_IMPORT_KEY: u8 = 0x66;
+const OP_IMPORT_ENCRYPTED: u8 = 0x67;
 const OP_INIT_ATTESTATION: u8 = 0x80;
 const OP_GET_ATTESTATION_KEY: u8 = 0x81;
 const OP_ATTEST_SIGN: u8 = 0x82;
@@ -83,6 +86,20 @@ enum Commands {
 
     /// Import a BIP39 mnemonic (interactive prompt)
     ImportMnemonic,
+
+    /// Initialize the device import keypair for encrypted mnemonic import (one-time).
+    InitImportKey {
+        /// Overwrite existing import key
+        #[arg(long)]
+        overwrite: bool,
+    },
+
+    /// Print the device's import public key (for encrypted mnemonic transfer).
+    GetImportKey,
+
+    /// Import a BIP39 mnemonic encrypted to the device's import public key (ECIES).
+    /// The mnemonic is encrypted locally before being sent to the device.
+    ImportEncrypted,
 
     /// Wipe the master seed
     ClearSeed,
@@ -417,6 +434,9 @@ fn main() -> Result<()> {
         Commands::Accounts { count } => cmd_accounts(&mut transport, count),
         Commands::GenerateMnemonic => cmd_generate_mnemonic(&mut transport),
         Commands::ImportMnemonic => cmd_import_mnemonic(&mut transport),
+        Commands::InitImportKey { overwrite } => cmd_init_import_key(&mut transport, overwrite),
+        Commands::GetImportKey => cmd_get_import_key(&mut transport),
+        Commands::ImportEncrypted => cmd_import_encrypted(&mut transport),
         Commands::ClearSeed => cmd_clear_seed(&mut transport),
         Commands::DangerousMode => cmd_dangerous_mode(&mut transport),
         Commands::SignMessage { message, index } => cmd_sign_message(&mut transport, &message, index),
@@ -1476,6 +1496,129 @@ fn print_qr(address: &str) -> Result<()> {
 
     println!();
     Ok(())
+}
+
+// =============================================================================
+// encrypted import: ECIES mnemonic transfer
+// =============================================================================
+
+fn cmd_init_import_key(t: &mut Transport, overwrite: bool) -> Result<()> {
+    let payload = [if overwrite { 0x01 } else { 0x00 }];
+    let (status, _) = t.command(OP_INIT_IMPORT_KEY, &payload)?;
+    match status {
+        STATUS_OK => println!("Import key initialized."),
+        0x08 => bail!("Import key already exists. Use --overwrite to replace."),
+        _ => bail!("init-import-key failed (status: 0x{:02x})", status),
+    }
+    Ok(())
+}
+
+fn cmd_get_import_key(t: &mut Transport) -> Result<()> {
+    let (status, payload) = t.command(OP_GET_IMPORT_KEY, &[])?;
+    if status != STATUS_OK {
+        bail!("get-import-key failed (status: 0x{:02x})", status);
+    }
+    if payload.len() < 33 {
+        bail!("unexpected response length: {}", payload.len());
+    }
+    println!("0x{}", hex::encode(&payload[..33]));
+    Ok(())
+}
+
+fn cmd_import_encrypted(t: &mut Transport) -> Result<()> {
+    // First, get the device's import public key
+    let (status, key_resp) = t.command(OP_GET_IMPORT_KEY, &[])?;
+    if status != STATUS_OK {
+        bail!(
+            "failed to get import key (status: 0x{:02x}). Run init-import-key first.",
+            status
+        );
+    }
+    if key_resp.len() < 33 {
+        bail!("unexpected import key length: {}", key_resp.len());
+    }
+    let pubkey_hex = hex::encode(&key_resp[..33]);
+    println!("Device import pubkey: 0x{}", pubkey_hex);
+
+    // Prompt for mnemonic
+    print!("Enter your BIP39 mnemonic (12 or 24 words): ");
+    io::stdout().flush()?;
+
+    let stdin = io::stdin();
+    let line = stdin.lock().lines().next()
+        .ok_or_else(|| anyhow::anyhow!("No input"))??;
+
+    let words: Vec<&str> = line.split_whitespace().collect();
+    if words.len() != 12 && words.len() != 24 {
+        bail!("Expected 12 or 24 words, got {}", words.len());
+    }
+
+    let mnemonic = words.join(" ");
+
+    // Encrypt with ECIES
+    let encrypted = ecies_encrypt(&key_resp[..33], mnemonic.as_bytes())?;
+    println!("Encrypted payload: {} bytes", encrypted.len());
+
+    // Send to device
+    let (status, _) = t.command(OP_IMPORT_ENCRYPTED, &encrypted)?;
+    match status {
+        STATUS_OK => {
+            println!("Encrypted mnemonic imported.");
+            // Show derived address
+            let path = bip44_payload(0, 0, 0);
+            if let Ok((s, payload)) = t.command(OP_GET_ADDRESS, &path) {
+                if s == STATUS_OK && payload.len() >= 20 {
+                    println!("address[0]: 0x{}", hex::encode(&payload[..20]));
+                }
+            }
+        }
+        0x0A => bail!("Decryption failed on device (wrong key or corrupted ciphertext)"),
+        _ => bail!("import-encrypted failed (status: 0x{:02x})", status),
+    }
+    Ok(())
+}
+
+/// ECIES encrypt: secp256k1 ECDH + HKDF-SHA256 + ChaCha20-Poly1305.
+fn ecies_encrypt(recipient_pubkey: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
+    use chacha20poly1305::{ChaCha20Poly1305, KeyInit, aead::Aead};
+    use hkdf::Hkdf;
+    use k256::ecdsa::SigningKey;
+    use sha2::Digest;
+
+    let recipient = k256::PublicKey::from_sec1_bytes(recipient_pubkey)
+        .map_err(|e| anyhow::anyhow!("invalid import pubkey: {}", e))?;
+
+    // Ephemeral keypair
+    let e_priv = SigningKey::random(&mut rand_core::OsRng);
+    let e_pub_point = e_priv.verifying_key().to_encoded_point(true);
+    let e_pub_bytes = e_pub_point.as_bytes(); // 33 bytes
+
+    // ECDH shared secret
+    let shared = k256::ecdh::diffie_hellman(
+        e_priv.as_nonzero_scalar(),
+        recipient.as_affine(),
+    );
+
+    // HKDF-SHA256
+    let hk = Hkdf::<sha2::Sha256>::new(Some(b"ethapp-import-v1"), shared.raw_secret_bytes());
+    let mut key = [0u8; 32];
+    hk.expand(b"", &mut key)
+        .map_err(|_| anyhow::anyhow!("HKDF expand failed"))?;
+
+    // Nonce: first 12 bytes of SHA-256(e_pub_bytes)
+    let hash = sha2::Sha256::digest(e_pub_bytes);
+    let nonce: [u8; 12] = hash[..12].try_into().unwrap();
+
+    // ChaCha20-Poly1305 encrypt
+    let cipher = ChaCha20Poly1305::new((&key).into());
+    let ct = cipher.encrypt((&nonce).into(), plaintext)
+        .map_err(|_| anyhow::anyhow!("encryption failed"))?;
+
+    // Wire: [e_pub:33][ciphertext+tag]
+    let mut payload = Vec::with_capacity(33 + ct.len());
+    payload.extend_from_slice(e_pub_bytes);
+    payload.extend_from_slice(&ct);
+    Ok(payload)
 }
 
 // =============================================================================

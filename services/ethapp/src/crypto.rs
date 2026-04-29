@@ -641,6 +641,71 @@ pub fn attest_transaction_signature(
 }
 
 // =============================================================================
+// ECIES Encrypted Import
+// =============================================================================
+
+/// ECIES protocol version salt for domain separation.
+const ECIES_SALT: &[u8] = b"ethapp-import-v1";
+
+/// Decrypt an ECIES-encrypted mnemonic payload.
+///
+/// Wire format: `[e_pub: 33 bytes compressed][ciphertext + poly1305 tag: N bytes]`
+///
+/// Protocol:
+/// 1. Parse ephemeral public key (first 33 bytes)
+/// 2. ECDH: shared = diffie_hellman(import_priv, e_pub)
+/// 3. HKDF-SHA256: key = hkdf(shared, salt="ethapp-import-v1")
+/// 4. Nonce: sha256(e_pub_bytes)[..12]
+/// 5. ChaCha20-Poly1305 decrypt + verify tag
+pub fn ecies_decrypt(
+    import_key: &SigningKey,
+    payload: &[u8],
+) -> Result<Vec<u8>, EthAppError> {
+    use chacha20poly1305::{ChaCha20Poly1305, KeyInit, aead::Aead};
+    use hkdf::Hkdf;
+    use sha2::Digest;
+
+    // Minimum: 33-byte ephemeral pubkey + 16-byte poly1305 tag
+    if payload.len() < 33 + 16 {
+        return Err(EthAppError::InvalidData);
+    }
+
+    // 1. Parse ephemeral public key
+    let e_pub_bytes = &payload[..33];
+    let e_pub = k256::PublicKey::from_sec1_bytes(e_pub_bytes)
+        .map_err(|_| EthAppError::CryptoError)?;
+
+    // 2. ECDH shared secret
+    let shared_secret = k256::ecdh::diffie_hellman(
+        import_key.as_nonzero_scalar(),
+        e_pub.as_affine(),
+    );
+
+    // 3. HKDF-SHA256 to derive symmetric key
+    let hk = Hkdf::<sha2::Sha256>::new(Some(ECIES_SALT), shared_secret.raw_secret_bytes());
+    let mut key = [0u8; 32];
+    hk.expand(b"", &mut key)
+        .map_err(|_| EthAppError::CryptoError)?;
+
+    // 4. Nonce: first 12 bytes of SHA-256(e_pub_bytes)
+    let hash = sha2::Sha256::digest(e_pub_bytes);
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&hash[..12]);
+
+    // 5. ChaCha20-Poly1305 decrypt
+    let cipher = ChaCha20Poly1305::new((&key).into());
+    let ciphertext_and_tag = &payload[33..];
+    let plaintext = cipher.decrypt((&nonce).into(), ciphertext_and_tag)
+        .map_err(|_| EthAppError::DecryptionFailed)?;
+
+    // Zeroize key material
+    zeroize::Zeroize::zeroize(&mut key);
+    zeroize::Zeroize::zeroize(&mut nonce);
+
+    Ok(plaintext)
+}
+
+// =============================================================================
 // V Value Computation
 // =============================================================================
 

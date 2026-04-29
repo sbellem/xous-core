@@ -442,6 +442,50 @@ pub struct AttestedSignature {
 }
 
 // =============================================================================
+// Encrypted Import (ECIES)
+// =============================================================================
+
+/// Request to initialize the import keypair.
+#[derive(Debug, Clone, Default, Archive, Serialize, Deserialize)]
+pub struct InitImportKeyRequest {
+    /// If true, overwrite an existing import key.
+    pub overwrite: bool,
+}
+
+/// Response containing the device's import public key.
+#[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize)]
+pub struct ImportKeyResponse {
+    /// Compressed secp256k1 public key (33 bytes).
+    pub pubkey: [u8; 33],
+}
+
+impl Default for ImportKeyResponse {
+    fn default() -> Self {
+        Self { pubkey: [0u8; 33] }
+    }
+}
+
+/// Encrypted mnemonic import payload (ECIES with ChaCha20-Poly1305).
+///
+/// Wire format: `[e_pub: 33 bytes compressed][ciphertext + poly1305 tag: N+16 bytes]`
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+pub struct EncryptedMnemonicImport {
+    /// Total payload length in bytes.
+    pub len: u32,
+    /// Payload: [e_pub:33][ciphertext+tag].
+    pub data: [u8; 512],
+}
+
+impl Default for EncryptedMnemonicImport {
+    fn default() -> Self {
+        Self {
+            len: 0,
+            data: [0u8; 512],
+        }
+    }
+}
+
+// =============================================================================
 // Chunked Transfer
 // =============================================================================
 

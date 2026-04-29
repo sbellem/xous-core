@@ -180,6 +180,17 @@ fn handle_message(
             handlers::handle_enable_dangerous_mainnet(state, msg)?;
         }
 
+        // === Encrypted Import ===
+        EthAppOp::InitImportKey => {
+            handlers::handle_init_import_key(state, msg)?;
+        }
+        EthAppOp::GetImportKey => {
+            handlers::handle_get_import_key(state, msg)?;
+        }
+        EthAppOp::ImportEncrypted => {
+            handlers::handle_import_encrypted(state, msg)?;
+        }
+
         // === Attestation ===
         EthAppOp::InitAttestation => {
             handlers::handle_init_attestation(state, msg)?;

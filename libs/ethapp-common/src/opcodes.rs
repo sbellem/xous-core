@@ -133,6 +133,20 @@ pub enum EthAppOp {
     /// Returns: success via scalar.
     EnableDangerousMainnet = 0x64,
 
+    /// Initialize the import keypair (one-time secp256k1 keypair for ECIES).
+    /// Input: InitImportKeyRequest via memory message.
+    /// Returns: success or ImportKeyExists error.
+    InitImportKey = 0x65,
+
+    /// Get the import public key (33-byte compressed secp256k1).
+    /// Returns: ImportKeyResponse via memory message.
+    GetImportKey = 0x66,
+
+    /// Import a mnemonic encrypted with ECIES to the import public key.
+    /// Input: [e_pub:33][ciphertext+tag] via memory message.
+    /// Returns: success or DecryptionFailed error.
+    ImportEncrypted = 0x67,
+
     // === Attestation (0x80-0x8F) ===
 
     /// Initialize device attestation identity (one-time keypair generation).
@@ -280,6 +294,7 @@ mod tests {
             EthAppOp::SetSeed, EthAppOp::ImportMnemonic,
             EthAppOp::GenerateMnemonic, EthAppOp::ClearSeed,
             EthAppOp::EnableDangerousMainnet,
+            EthAppOp::InitImportKey, EthAppOp::GetImportKey, EthAppOp::ImportEncrypted,
             EthAppOp::InitAttestation, EthAppOp::GetAttestationKey, EthAppOp::AttestSign,
             EthAppOp::SerialFrame,
             EthAppOp::ClearMetadataCache, EthAppOp::GetStats, EthAppOp::Ping,

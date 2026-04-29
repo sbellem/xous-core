@@ -47,6 +47,10 @@ pub struct ServiceState {
     /// Independent of wallet seed — survives seed wipes.
     pub attestation_key: Option<k256::ecdsa::SigningKey>,
 
+    /// Cached import key for ECIES encrypted mnemonic import (loaded from PDDB).
+    /// Independent of wallet seed — survives seed wipes.
+    pub import_key: Option<k256::ecdsa::SigningKey>,
+
     /// DANGEROUS: when true, allows signing on mainnet chains even on
     /// displayless dev-mode/autoapprove builds. Must be explicitly
     /// enabled per session via the EnableDangerousMainnet opcode.
@@ -94,6 +98,7 @@ impl ServiceState {
             platform: MockPlatform::new(),
             imported_seed: None,
             attestation_key: None,
+            import_key: None,
             dangerous_mainnet: false,
             config: AppConfiguration {
                 version_major: 0,
@@ -137,6 +142,26 @@ impl ServiceState {
             }
         }
         self.attestation_key.as_ref().ok_or(EthAppError::AttestationNotInitialized)
+    }
+
+    // =========================================================================
+    // Import Key
+    // =========================================================================
+
+    /// Get the import signing key, loading from PDDB if not cached.
+    pub fn get_import_key(&mut self) -> Result<&k256::ecdsa::SigningKey, EthAppError> {
+        if self.import_key.is_none() {
+            if let Ok(Some(bytes)) = self.platform.load_value(crate::platform::PDDB_KEY_IMPORT) {
+                if bytes.len() == 32 {
+                    if let Ok(key) = k256::ecdsa::SigningKey::from_bytes(
+                        (&bytes[..]).into()
+                    ) {
+                        self.import_key = Some(key);
+                    }
+                }
+            }
+        }
+        self.import_key.as_ref().ok_or(EthAppError::ImportKeyNotInitialized)
     }
 
     // =========================================================================
