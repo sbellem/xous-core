@@ -165,7 +165,8 @@ enum Commands {
     /// Check the ETH balance of an address. Uses the device's address at
     /// --index by default, or an arbitrary --address if provided.
     Balance {
-        /// JSON-RPC URL
+        /// JSON-RPC URL (e.g. https://ethereum-sepolia-rpc.publicnode.com
+        /// for Sepolia testnet, https://ethereum-rpc.publicnode.com for mainnet)
         #[arg(long)]
         rpc_url: String,
 
@@ -182,7 +183,8 @@ enum Commands {
     /// gas price, EIP-1559 fee suggestion, balance, and gas limit estimate.
     /// Uses the device's address at the given index.
     TxInfo {
-        /// JSON-RPC URL (e.g. https://ethereum-sepolia-rpc.publicnode.com)
+        /// JSON-RPC URL (e.g. https://ethereum-sepolia-rpc.publicnode.com
+        /// for Sepolia testnet, https://ethereum-rpc.publicnode.com for mainnet)
         #[arg(long)]
         rpc_url: String,
 
@@ -210,7 +212,8 @@ enum Commands {
         /// Hex-encoded signed transaction (with or without 0x prefix)
         signed_tx_hex: String,
 
-        /// JSON-RPC URL
+        /// JSON-RPC URL (e.g. https://ethereum-sepolia-rpc.publicnode.com
+        /// for Sepolia testnet, https://ethereum-rpc.publicnode.com for mainnet)
         #[arg(long)]
         rpc_url: String,
 
@@ -229,7 +232,8 @@ enum Commands {
         #[arg(long)]
         token: String,
 
-        /// JSON-RPC URL
+        /// JSON-RPC URL (e.g. https://ethereum-sepolia-rpc.publicnode.com
+        /// for Sepolia testnet, https://ethereum-rpc.publicnode.com for mainnet)
         #[arg(long)]
         rpc_url: String,
 
@@ -263,7 +267,9 @@ enum Commands {
         /// Amount in the token's smallest unit (e.g. 1000000 = 1 USDC)
         amount: u128,
 
-        /// JSON-RPC URL (for auto-fetching nonce/fees/gas)
+        /// JSON-RPC URL for auto-fetching nonce/fees/gas
+        /// (e.g. https://ethereum-sepolia-rpc.publicnode.com for Sepolia testnet,
+        /// https://ethereum-rpc.publicnode.com for mainnet)
         #[arg(long)]
         rpc_url: String,
 
