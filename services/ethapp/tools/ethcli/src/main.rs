@@ -39,6 +39,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Print a step-by-step guide for funding and transferring USDC on Sepolia testnet.
+    Guide,
+
     /// Health check
     Ping,
 
@@ -349,6 +352,9 @@ fn main() -> Result<()> {
 
     // Offline commands: handle before opening the device.
     match &cli.command {
+        Commands::Guide => {
+            return cmd_guide();
+        }
         Commands::BuildTx {
             to, value, nonce, chain_id, gas_price, gas_limit, data,
         } => {
@@ -419,7 +425,8 @@ fn main() -> Result<()> {
         Commands::AttestSignTx { rlp_hex, index } => {
             cmd_attest_sign_tx(&mut transport, &rlp_hex, index)
         }
-        Commands::BuildTx { .. } | Commands::Publish { .. }
+        Commands::Guide
+        | Commands::BuildTx { .. } | Commands::Publish { .. }
         | Commands::Balance { address: Some(_), .. }
         | Commands::TokenBalance { address: Some(_), .. }
         | Commands::VerifyAttestation { .. } => unreachable!("handled above"),
@@ -1518,6 +1525,68 @@ fn cmd_verify_attestation(
         std::process::exit(1);
     }
 
+    Ok(())
+}
+
+// =============================================================================
+// guide: step-by-step walkthrough
+// =============================================================================
+
+fn cmd_guide() -> Result<()> {
+    print!(r#"
+Sepolia Testnet Guide: Fund and Transfer USDC
+==============================================
+
+Prerequisites:
+  - ethcli built and in PATH
+  - Baochip device connected via USB
+  - A wallet seed loaded (generate-mnemonic or import-mnemonic)
+
+Constants:
+  RPC     = https://ethereum-sepolia-rpc.publicnode.com
+  USDC    = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238  (Circle's Sepolia USDC, 6 decimals)
+  CHAIN   = 11155111 (Sepolia)
+
+Step 1: Get your address
+  ethcli address --index 0
+  # -> 0xYourAddress
+
+Step 2: Fund with Sepolia ETH (for gas)
+  Visit https://cloud.google.com/application/web3/faucet/ethereum/sepolia
+  or any Sepolia faucet. Paste your address. You need ~0.01 ETH.
+
+Step 3: Fund with testnet USDC
+  Visit https://faucet.circle.com
+  Select "Ethereum Sepolia", paste your address.
+  You'll receive 10 USDC (may take a few seconds).
+
+Step 4: Verify balances
+  ethcli balance \
+    --rpc-url https://ethereum-sepolia-rpc.publicnode.com \
+    --index 0
+
+  ethcli token-balance \
+    --token 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238 \
+    --rpc-url https://ethereum-sepolia-rpc.publicnode.com \
+    --index 0 --decimals 6 --symbol USDC
+
+Step 5: Send USDC
+  # Send 1 USDC (= 1000000 smallest units) to a recipient:
+  ethcli send-token \
+    --token 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238 \
+    0xRECIPIENT_ADDRESS 1000000 \
+    --rpc-url https://ethereum-sepolia-rpc.publicnode.com \
+    --index 0 --broadcast
+
+Step 6: Verify on block explorer
+  Check the tx hash at https://sepolia.etherscan.io
+
+Tips:
+  - Drop --broadcast to get the raw signed hex without sending
+  - Add --legacy to use a legacy (non-EIP-1559) transaction
+  - Use --nonce and --gas-limit to override auto-detected values
+  - Use ethcli tx-info to inspect chain state before sending
+"#);
     Ok(())
 }
 
