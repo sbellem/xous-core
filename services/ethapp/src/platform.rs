@@ -146,41 +146,22 @@ impl XousPlatform {
 #[cfg(any(target_os = "xous", feature = "hosted-dabao"))]
 impl Platform for XousPlatform {
     fn rng_fill_bytes(&self, buf: &mut [u8]) -> Result<(), EthAppError> {
-        // Dev-mode: deterministic fake RNG for reproducible testing.
-        // SECURITY: This is NOT cryptographically secure and must never
-        // be used in production. The cfg(feature) gate ensures it is
-        // compile-time excluded from release builds.
-        #[cfg(feature = "dev-mode")]
+        #[cfg(target_os = "xous")]
         {
-            // Deterministic test seed -- INSECURE, for development only.
-            let seed: u64 = u64::from_le_bytes([0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE]);
-
-            let mut state = seed;
-            for byte in buf.iter_mut() {
-                state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
-                *byte = (state >> 32) as u8;
-            }
-            return Ok(());
+            // On real hardware: always use the hardware TRNG, even in dev-mode.
+            use rand_core::RngCore;
+            let trng = self.trng.as_ref()
+                .ok_or(EthAppError::ServiceConnectionFailed)?;
+            // SAFETY: Single-threaded Xous server; Trng IPC is stateless.
+            let trng_ptr = trng as *const trng::Trng as *mut trng::Trng;
+            unsafe { (*trng_ptr).fill_bytes(buf); }
+            Ok(())
         }
 
-        #[cfg(not(feature = "dev-mode"))]
+        #[cfg(not(target_os = "xous"))]
         {
-            #[cfg(target_os = "xous")]
-            {
-                use rand_core::RngCore;
-                let trng = self.trng.as_ref()
-                    .ok_or(EthAppError::ServiceConnectionFailed)?;
-                // SAFETY: Single-threaded Xous server; Trng IPC is stateless.
-                let trng_ptr = trng as *const trng::Trng as *mut trng::Trng;
-                unsafe { (*trng_ptr).fill_bytes(buf); }
-                Ok(())
-            }
-
-            #[cfg(not(target_os = "xous"))]
-            {
-                // Hosted mode: use getrandom for OS entropy
-                getrandom::getrandom(buf).map_err(|_| EthAppError::CryptoError)
-            }
+            // Hosted mode: use getrandom for OS entropy
+            getrandom::getrandom(buf).map_err(|_| EthAppError::CryptoError)
         }
     }
 
