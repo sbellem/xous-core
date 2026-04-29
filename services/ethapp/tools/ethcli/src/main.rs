@@ -39,8 +39,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Print a step-by-step guide for funding and transferring USDC on Sepolia testnet.
-    Guide,
+    /// Print a step-by-step guide for funding and transferring USDC.
+    /// Shows Sepolia testnet by default; pass --mainnet for mainnet.
+    Guide {
+        /// Show mainnet guide instead of Sepolia testnet
+        #[arg(long)]
+        mainnet: bool,
+    },
 
     /// Display an Ethereum address as a QR code in the terminal.
     Qr {
@@ -369,8 +374,8 @@ fn main() -> Result<()> {
 
     // Offline commands: handle before opening the device.
     match &cli.command {
-        Commands::Guide => {
-            return cmd_guide();
+        Commands::Guide { mainnet } => {
+            return cmd_guide(*mainnet);
         }
         Commands::Qr { address: Some(ref addr), .. } => {
             return cmd_qr_address(addr);
@@ -448,7 +453,7 @@ fn main() -> Result<()> {
         Commands::Qr { index, address: None } => {
             cmd_qr_device(&mut transport, index)
         }
-        Commands::Guide
+        Commands::Guide { .. }
         | Commands::BuildTx { .. } | Commands::Publish { .. }
         | Commands::Balance { address: Some(_), .. }
         | Commands::TokenBalance { address: Some(_), .. }
@@ -1634,8 +1639,71 @@ fn cmd_verify_attestation(
 // guide: step-by-step walkthrough
 // =============================================================================
 
-fn cmd_guide() -> Result<()> {
-    print!(r#"
+fn cmd_guide(mainnet: bool) -> Result<()> {
+    if mainnet {
+        print!(r#"
+Ethereum Mainnet Guide: Transfer USDC
+======================================
+
+  WARNING: This uses REAL funds on Ethereum mainnet.
+  On displayless dev boards, run `ethcli dangerous-mode` first.
+
+Prerequisites:
+  - ethcli built and in PATH
+  - Baochip device connected via USB
+  - A wallet seed loaded (generate-mnemonic or import-mnemonic)
+
+Constants:
+  RPC     = https://ethereum-rpc.publicnode.com
+  USDC    = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48  (Circle USDC, 6 decimals)
+  CHAIN   = 1 (mainnet)
+
+Step 1: Get your address
+  ethcli address --index 0
+  # -> 0xYourAddress
+
+Step 2: Fund with ETH (for gas)
+  Send at least 0.005 ETH to your address from an exchange or
+  another wallet. An ERC-20 transfer costs ~65,000 gas * ~5 gwei
+  = ~0.000325 ETH. Check current gas at https://etherscan.io/gastracker
+
+Step 3: Fund with USDC
+  Send USDC to your address from an exchange or another wallet.
+
+Step 4: Verify balances
+  ethcli balance \
+    --rpc-url https://ethereum-rpc.publicnode.com \
+    --index 0
+
+  ethcli token-balance \
+    --token 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 \
+    --rpc-url https://ethereum-rpc.publicnode.com \
+    --index 0 --decimals 6 --symbol USDC
+
+Step 5: Enable mainnet signing (dev boards only)
+  ethcli dangerous-mode
+  # Type "I ACCEPT THE RISK" when prompted. Session-only, resets on reboot.
+
+Step 6: Send USDC
+  # Send 8 USDC (= 8000000 smallest units) to a recipient:
+  ethcli send-token \
+    --token 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 \
+    0xRECIPIENT_ADDRESS 8000000 \
+    --rpc-url https://ethereum-rpc.publicnode.com \
+    --index 0 --broadcast
+
+Step 7: Verify on block explorer
+  Check the tx hash at https://etherscan.io
+
+Tips:
+  - Drop --broadcast to get the raw signed hex without sending
+  - Add --legacy to use a legacy (non-EIP-1559) transaction
+  - Use --nonce and --gas-limit to override auto-detected values
+  - Use ethcli tx-info to inspect chain state before sending
+  - Show your address as a QR code: ethcli qr --index 0
+"#);
+    } else {
+        print!(r#"
 Sepolia Testnet Guide: Fund and Transfer USDC
 ==============================================
 
@@ -1688,7 +1756,9 @@ Tips:
   - Add --legacy to use a legacy (non-EIP-1559) transaction
   - Use --nonce and --gas-limit to override auto-detected values
   - Use ethcli tx-info to inspect chain state before sending
+  - Show your address as a QR code: ethcli qr --index 0
 "#);
+    }
     Ok(())
 }
 
