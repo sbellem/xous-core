@@ -73,8 +73,14 @@ impl Csprng {
         ro_trng.setup_raw_generation(32); // this is actually repeated, but it's safe to repeat
         let slot_mgr = crate::acram::SlotManager::new();
 
-        // start with the UUID of the chip. Not random, but different per chip
-        let mut seed: [u8; 32] = slot_mgr.read(&bao1x_api::UUID).unwrap().try_into().unwrap();
+        // Start with the UUID of the chip. Not random, but different per chip.
+        // On an unprovisioned part the UUID slot can be unreadable (AccessDenied under a
+        // restrictive ACL) or blank; fall back to zeros instead of panicking, so a blank chip can
+        // still reach boot1 -- whose check_slots() then populates the UUID. This matches the
+        // existing unwrap_or idiom used below for CLOCK_SCRAMBLE_PARAMS. The seed is reseeded from
+        // the TRNG further down in this function, so the fallback does not weaken it.
+        let mut seed: [u8; 32] =
+            slot_mgr.read(&bao1x_api::UUID).ok().and_then(|s| s.try_into().ok()).unwrap_or([0u8; 32]);
 
         // XOR in some words from uninitialized RAM. This is only somewhat random. The purpose is to
         // protect against a TRNG that has been tampered by e.g. cutting some wires in the
